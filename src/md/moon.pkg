@@ -1,0 +1,7 @@
+import {
+  "riantr/moonbit_markdown/src/text" @tx,
+}
+
+import {
+  "moonbitlang/core/test",
+} for "test"

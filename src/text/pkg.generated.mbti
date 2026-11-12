@@ -1,0 +1,32 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "riantr/moonbit_markdown/src/text"
+
+// Values
+pub fn chars(String) -> Array[Char]
+
+pub fn is_punct(Char) -> Bool
+
+pub fn is_space(Char) -> Bool
+
+pub fn leading_spaces(String) -> Int32
+
+pub fn ltrim(Array[Char]) -> String
+
+pub fn slice(String, Int32, Int32) -> String
+
+pub fn split_lines(String) -> Array[String]
+
+pub fn text(Array[Char], Int32, Int32) -> String
+
+pub fn trim_range(Array[Char]) -> (Int32, Int32)
+
+pub fn trimmed(Array[Char]) -> String
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+pub type Chars = Array[Char]
+
+// Traits

@@ -1,0 +1,19 @@
+# The dependency cache and the build tree. Neither belongs in the repository:
+# moon.mod pins the version of the one dependency, and the compiler rebuilds
+# _build/ from the sources on every run.
+/.mooncakes/
+/_build/
+
+# The documents in the root are build products. README.md lists the command
+# that produces each one, and pins the hash of the two whose content is
+# stable, so a clone can reproduce them byte for byte.
+/moonbit_doubleML_state_diagram.html
+/moonbit_doubleML_state_diagram.pdf
+/moonbit_doubleML_state_diagram_moonbit.pdf
+/moonbit_doubleML_state_diagram_moonbit.print.html
+/index.html
+/md_with_diagram.html
+/md_with_diagram.pdf
+
+# The screenshot verify_page.js takes on every run.
+/moonbit_page.png

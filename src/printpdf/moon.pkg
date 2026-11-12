@@ -1,0 +1,8 @@
+import {
+  "riantr/moonbit_markdown/src/mermaid",
+  "riantr/moonbit_markdown/src/text",
+}
+
+import {
+  "moonbitlang/core/test",
+} for "test"

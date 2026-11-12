@@ -1,0 +1,8 @@
+# Keep the line endings LF on every platform, so that `moon fmt` and the
+# reference scripts see the same bytes everywhere and the repository does not
+# change shape when someone checks it out on Windows.
+* text=auto eol=lf
+
+# Binary: never line-ending converted, never diffed as text.
+*.pdf binary
+*.png binary

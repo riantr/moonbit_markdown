@@ -1,0 +1,100 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "riantr/moonbit_markdown/src/md"
+
+// Values
+pub const DEFAULT_CSS : String = "@page{size:A4 portrait;margin:12mm}html{box-sizing:border-box}*{box-sizing:inherit}body{margin:0;background:#fff;color:#1c1c1c;font:16px/1.65 -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}main{max-width:52em;margin:0 auto;padding:48px 24px 96px}h1,h2,h3,h4,h5,h6{line-height:1.25;margin:1.6em 0 .6em}h1{font-size:2em}h2{font-size:1.5em}h3{font-size:1.2em}p{margin:0 0 1em}a{color:#0b5cad}code{background:#f4f4f6;border-radius:4px;padding:.15em .35em;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}pre{background:#f7f7f9;border:1px solid #e3e3e8;border-radius:8px;padding:14px 16px;overflow:auto}pre code{background:none;padding:0;font-size:.86em}blockquote{margin:1.2em 0;padding:.2em 1em;border-left:4px solid #d8d8e0;color:#555}hr{border:0;border-top:1px solid #e3e3e8;margin:2em 0}table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.94em}th,td{border-bottom:1px solid #e3e3e8;padding:6px 10px;text-align:left}th{background:#f7f7f9}ul,ol{padding-left:1.4em}.task-list-item{list-style:none}.mermaid{margin:1.5em 0;text-align:center}.mermaid svg{max-width:100%;height:auto}@media print{body{font-size:11pt}main{max-width:none;padding:0}a{color:inherit;text-decoration:none}pre,blockquote,table{break-inside:avoid}}"
+
+pub const MERMAID_BOOTSTRAP : String = "(function(){if(!window.mermaid){return}window.mermaid.initialize({startOnLoad:false,maxTextSize:20000000,maxEdges:500000});var nodes=[].slice.call(document.querySelectorAll('div.mermaid'));var seq=0;function renderOne(el){var src=el.textContent;var id='mmd_'+(++seq);return window.mermaid.render(id,src).then(function(r){var holder=document.createElement('div');holder.innerHTML=r.svg;var svg=holder.querySelector('svg');el.innerHTML='';el.appendChild(svg)}).catch(function(e){el.textContent='diagram failed to render: '+e})}nodes.reduce(function(p,el){return p.then(function(){return renderOne(el)})},Promise.resolve())})();"
+
+pub fn chars(String) -> Array[Char]
+
+pub fn collect_toc(Array[Block]) -> Array[TocEntry]
+
+pub fn escape_html(String) -> String
+
+pub fn first_word(String) -> String
+
+pub fn is_punct(Char) -> Bool
+
+pub fn is_space(Char) -> Bool
+
+pub fn leading_spaces(String) -> Int32
+
+pub fn ltrim(Array[Char]) -> String
+
+pub fn needs_runtime(Array[Block]) -> Bool
+
+pub fn parse_document(String) -> Array[Block]
+
+pub fn parse_inline(String) -> Array[Inline]
+
+pub fn plain_text(Array[Inline]) -> String
+
+pub fn render(String) -> String
+
+pub fn render_blocks(Array[Block]) -> String
+
+pub fn render_inline(Array[Inline]) -> String
+
+pub fn render_page(String, String, String) -> String
+
+pub fn slice(String, Int32, Int32) -> String
+
+pub fn split_lines(String) -> Array[String]
+
+pub fn text(Array[Char], Int32, Int32) -> String
+
+pub fn trim_range(Array[Char]) -> (Int32, Int32)
+
+pub fn trimmed(Array[Char]) -> String
+
+// Errors
+
+// Types and methods
+pub enum Block {
+  Heading(Int32, Array[Inline])
+  Paragraph(Array[Inline])
+  CodeBlock(String, String)
+  Mermaid(String)
+  HtmlBlock(String)
+  Quote(Array[Block])
+  List(Bool, Array[ListItem])
+  Rule
+  Table(Array[TableCell], Array[String], Array[TableRow])
+}
+
+pub enum Inline {
+  Text(String)
+  Code(String)
+  Emphasis(Array[Inline])
+  Strong(Array[Inline])
+  Link(String, Array[Inline])
+  Image(String, String)
+  RawHtml(String)
+  HardBreak
+  SoftBreak
+}
+
+pub struct ListItem {
+  blocks : Array[Block]
+  task : Int32
+}
+
+pub struct TableCell {
+  content : Array[Inline]
+}
+
+pub struct TableRow {
+  cells : Array[TableCell]
+}
+
+pub struct TocEntry {
+  level : Int32
+  id : String
+  text : String
+}
+
+// Type aliases
+pub type Chars = Array[Char]
+
+// Traits

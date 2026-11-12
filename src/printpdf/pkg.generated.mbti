@@ -1,0 +1,128 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "riantr/moonbit_markdown/src/printpdf"
+
+import {
+  "riantr/moonbit_markdown/src/mermaid",
+}
+
+// Values
+pub const CAP_PX : Double = 24.
+
+pub const HC_PX : Double = 1007.81102362
+
+pub const PAGE_H_PX : Double = 1031.81102362
+
+pub const PRINT_CSS : String = "@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{margin:0;background:#fff;color:#111;font:10.5pt/1.45 'Segoe UI',Arial,Helvetica,sans-serif}.page{width:186mm;height:273mm;page-break-after:always;break-after:page;position:relative;overflow:hidden;padding:0}.page:last-child{page-break-after:auto;break-after:auto}.page.flow{height:auto;min-height:0}h1{font-size:24pt;margin:0 0 4pt;letter-spacing:-.3pt}h2{font-size:12pt;font-weight:500;color:#555;margin:0 0 10pt}h3{font-size:12pt;margin:16pt 0 5pt}h3.appx{margin:0 0 8pt}code,.mono{font-family:Consolas,'Courier New',monospace;font-size:9pt}.rule{height:2px;background:#111;margin:0 0 12pt}table.kv{border-collapse:collapse;width:100%;margin-bottom:6pt}table.kv th{text-align:left;width:26%;color:#555;font-weight:500;padding:1.5pt 8pt 1.5pt 0;vertical-align:top}table.kv td{padding:1.5pt 0}table.data{border-collapse:collapse;width:100%;font-size:8.6pt}table.data th{text-align:left;background:#ececec;border-bottom:1px solid #999;padding:3pt 5pt;font-weight:600}table.data td{border-bottom:1px solid #e2e2e2;padding:2.2pt 5pt;vertical-align:top}table.data tr{page-break-inside:avoid;break-inside:avoid}table.data thead{display:table-header-group}table.data td.num{text-align:right;font-variant-numeric:tabular-nums}table.data td.path{word-break:break-all}table.data tr.hot td{background:#fff6e0}table.notices td:nth-child(5){width:52%}.cover ul.toc,.cover ul.notes{padding-left:14pt;margin:4pt 0 0;font-size:9.6pt}.cover ul.notes li{margin:2pt 0}.cover p{font-size:9.8pt;margin:4pt 0}.lede{font-size:9.6pt;color:#444;margin:0 0 8pt}.crop{position:relative;overflow:hidden}.crop>.holder{position:absolute;left:0;top:0;transform-origin:0 0}.slice-cap{font-size:8.4pt;color:#666;margin:0 0 4pt;height:14pt}.km{position:relative;width:186mm;margin:0 0 7pt}.km-svg{position:relative;width:100%}.km-svg svg{display:block;width:100%;height:auto}.km-tick{position:absolute;top:0;width:1px;height:100%;background:#c9c9c9}.km-tick.hot{background:#c0392b;width:1.5px}.km-band{position:absolute;top:0;height:100%;background:rgba(70,110,190,.10);border-left:1px solid #7d9cc4;border-right:1px solid #7d9cc4}.km-labs{position:relative;height:11pt}.km-lab{position:absolute;top:0;font-size:6.2pt;font-weight:400;color:#666;transform:translateX(-50%);white-space:nowrap}.km-lab.hot{color:#c0392b;font-weight:700}.km-lab.band{color:#3c5f91}table.keymap-tbl{font-size:8.4pt;margin-bottom:7pt}table.keymap-tbl tr.hot td{background:#fff6e0}blockquote.boiler{margin:4pt 0 8pt;padding:5pt 8pt;background:#f5f5f5;border-left:3px solid #999;font-size:8.4pt;color:#333}"
+
+pub const PRINT_CSS_EXTRA : String = ".crop>.holder.fit{width:100%;height:100%}"
+
+pub const SLICE_FILES : Int32 = 12
+
+pub const WC_PX : Double = 702.992125984
+
+pub fn chars(String) -> Array[Char]
+
+pub fn classify(Array[NodeBox], String) -> Regions
+
+pub fn cover_html(@mermaid.Diagram, PrintPlan, Measurement) -> String
+
+pub fn crop_boundaries(Array[Span], Double, Double) -> Array[Double]
+
+pub fn esc(String) -> String
+
+pub fn fan_boilerplate(@mermaid.FileBlock) -> String
+
+pub fn file_table_html(@mermaid.Diagram) -> String
+
+pub fn fmt0(Double) -> String
+
+pub fn fmt1(Double) -> String
+
+pub fn focus_size(Measurement) -> (Double, Double)
+
+pub fn focus_source(@mermaid.FileBlock) -> String
+
+pub fn full_size(Measurement) -> (Double, Double)
+
+pub fn group(Int32) -> String
+
+pub fn measure_page(Array[String], String) -> String
+
+pub fn measurement_of(Array[(Double, Double)], Array[NodeBox]) -> Measurement
+
+pub fn node_box(String, Double, Double, Double, Double) -> NodeBox
+
+pub fn notice_kind(String) -> String
+
+pub fn notice_loc(String) -> String
+
+pub fn notice_table_html(@mermaid.Diagram) -> String
+
+pub fn notice_text(String) -> String
+
+pub fn parse_measurement(String) -> Measurement
+
+pub fn parse_num(String) -> Double
+
+pub fn plan(@mermaid.Diagram) -> PrintPlan
+
+pub fn print_document(@mermaid.Diagram, PrintPlan, Measurement, String) -> String
+
+pub fn slice_groups(Int32, Int32) -> Array[(Int32, Int32)]
+
+pub fn slice_source(@mermaid.Diagram, Int32, Int32) -> String
+
+pub fn sources_json(Array[String]) -> String
+
+pub fn span(Double, Double) -> Span
+
+pub fn text(Array[Char], Int32, Int32) -> String
+
+pub fn trimmed(Array[Char]) -> String
+
+// Errors
+
+// Types and methods
+pub struct Measurement {
+  dims : Array[(Double, Double)]
+  nodes : Array[NodeBox]
+  errors : Array[String]
+}
+
+pub struct NodeBox {
+  id : String
+  x : Double
+  y : Double
+  w : Double
+  h : Double
+}
+
+pub struct PrintPlan {
+  slices : Array[(Int32, Int32)]
+  slice_sources : Array[String]
+  detail_index : Int32
+  detail_id : String
+  detail_full : String
+  detail_focus : String
+  detail_notices : Int32
+}
+
+pub struct Regions {
+  chain : Span
+  states : Span
+  boiler : Span
+  defect : Span
+  why : Span
+  state_x : Array[Double]
+  states_n : Int32
+  boiler_n : Int32
+}
+
+pub struct Span {
+  from : Double
+  to : Double
+}
+
+// Type aliases
+
+// Traits
