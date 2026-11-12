@@ -1,11 +1,15 @@
 // Check that a Markdown page with a Mermaid diagram really renders it.
-const puppeteer = require('C:/Users/hp/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer');
 const path = require('path');
+const { findPuppeteer, findChrome } = require('./env');
+
+const puppeteer = findPuppeteer();
+const CHROME = findChrome();
 
 (async () => {
   const file = process.argv[2];
   const browser = await puppeteer.launch({
-    executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    // an empty path means "the browser puppeteer brought with it"
+    ...(CHROME ? { executablePath: CHROME } : {}),
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     headless: 'new',
     protocolTimeout: 600000,

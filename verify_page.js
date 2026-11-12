@@ -12,9 +12,10 @@
  */
 const fs = require('fs');
 const path = require('path');
-const puppeteer = require('C:/Users/hp/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer');
+const { findPuppeteer, findChrome } = require('./env');
 
-const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+const puppeteer = findPuppeteer();
+const CHROME = findChrome();
 const PAGE = process.argv[2];
 const SCAN = process.argv[3];
 
@@ -46,7 +47,8 @@ function scanGroundTruth(src) {
   console.log(`source: ${truth.length} files, ${totalNotices} notice states`);
 
   const browser = await puppeteer.launch({
-    executablePath: CHROME,
+    // an empty path means "the browser puppeteer brought with it"
+    ...(CHROME ? { executablePath: CHROME } : {}),
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     headless: 'new',
     protocolTimeout: 900000,

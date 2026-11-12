@@ -18,8 +18,12 @@ from pathlib import Path
 
 from pypdf import PdfReader
 
-PDF = Path(r"D:\src\moon\moonbit_markdown\moonbit_doubleML_state_diagram.pdf")
-SRC = Path(r"D:\src\moon\moonbit_markdown\riantr-moonbit_doubleML_0.164.28_0.1.20261012_20261023T005706Z.mmd")
+# The PDF and the scan it was made from: both are build products of this
+# directory, so the paths follow the script rather than any one machine's
+# layout.
+ROOT = Path(__file__).resolve().parent
+PDF = ROOT / "moonbit_doubleML_state_diagram.pdf"
+SRC = ROOT / "riantr-moonbit_doubleML_0.164.28_0.1.20261012_20261023T005706Z.mmd"
 
 BOILER_HEAD = "NOTICE \u2014 counted in `notices`, excluded from `actionable`."
 

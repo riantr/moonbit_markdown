@@ -8,8 +8,11 @@ from pathlib import Path
 
 import pymupdf
 
-PDF = Path(r"D:\src\moon\moonbit_markdown\moonbit_doubleML_state_diagram.pdf")
-OUT = Path(r"D:\src\moon\moonbit_markdown\shots_pdf")
+# The PDF to rasterise and where the pages go: both relative to this
+# script, so the tool works wherever the repository is checked out.
+ROOT = Path(__file__).resolve().parent
+PDF = ROOT / "moonbit_doubleML_state_diagram.pdf"
+OUT = ROOT / "shots_pdf"
 PAGES = [int(x) for x in (sys.argv[1] if len(sys.argv) > 1 else "1,2,3,20,21,34,35,36").split(",")]
 
 doc = pymupdf.open(PDF)

@@ -9,7 +9,10 @@ from pathlib import Path
 
 from pypdf import PdfReader
 
-PDF = Path(r"D:\src\moon\moonbit_markdown\moonbit_doubleML_state_diagram.pdf")
+# The PDF to check: the reference implementation's output, which is a build
+# product of this directory. The path follows the script, so the tool works
+# wherever the repository is checked out.
+PDF = Path(__file__).resolve().parent / "moonbit_doubleML_state_diagram.pdf"
 
 failures: list[str] = []
 

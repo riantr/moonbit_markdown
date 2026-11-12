@@ -9,7 +9,10 @@ from pathlib import Path
 
 from pypdf import PdfReader
 
-ROOT = Path(r"D:\src\moon\moonbit_markdown")
+# The repository root: wherever this script sits. The reference PDF and the
+# MoonBit PDF are both build products of this directory, so the paths follow
+# the script rather than any one machine's layout.
+ROOT = Path(__file__).resolve().parent
 REF = ROOT / "moonbit_doubleML_state_diagram.pdf"
 NEW = ROOT / "moonbit_doubleML_state_diagram_moonbit.pdf"
 

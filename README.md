@@ -38,6 +38,17 @@ the mermaid runtime is inlined and the PDF carries 117 pages. The scripts
 above read them for you and print a verdict; there is no need to open either
 one to check the work.
 
+In a fresh clone the documents are not there — they are build products, and
+the section below says how to make each one. The quickest way to the
+verdicts is:
+
+```
+node build_pdf.js                                        # the reference pdf
+moon run . mmd2html <in.mmd> moonbit_doubleML_state_diagram.html
+moon run . mmd2pdf  <in.mmd> moonbit_doubleML_state_diagram_moonbit.pdf
+moon run . md2html  md_with_diagram.md md_with_diagram.html
+```
+
 ## What is in here
 
 | package | what it does | dependencies |
@@ -192,6 +203,25 @@ node verify_page.js moonbit_doubleML_state_diagram.html <in.mmd>
 node verify_md_page.js <a markdown page with a diagram>
 python verify_pdf_moonbit.py
 ```
+
+Every path in these scripts is relative to the script itself, so they work in
+a clone wherever it is put. The three external tools they need are looked up
+in one place, in `env.js`: the browser, the mermaid runtime and puppeteer.
+Each is found in the same order — an environment variable first, then the
+usual places for the platform — and the environment variables are:
+
+| variable | what it names |
+| --- | --- |
+| `CHROME` | the Chrome or Edge binary to drive |
+| `MERMAID_JS` | the `mermaid.min.js` runtime to inline |
+| `PUPPETEER_MODULE` | the puppeteer module to load |
+
+Without `CHROME` the usual install locations are tried, and if none has one
+the browser puppeteer downloaded is used. Puppeteer is looked for in the
+repository's own `node_modules` first, then in the global npm root.
+
+The MoonBit tool has the same three settings, under the names it was given
+there: `--chrome`, `--mermaid-js`, and its own default paths.
 
 `verify_page.js` opens the page in a real browser and checks the drawing: the
 node count of the overview, the sidebar, the drawn notice and finding counts,

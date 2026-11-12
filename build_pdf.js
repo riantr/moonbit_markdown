@@ -16,13 +16,22 @@
  */
 const fs = require('fs');
 const path = require('path');
-const puppeteer = require('C:/Users/hp/AppData/Roaming/npm/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer');
+const { ROOT, findPuppeteer, findChrome, findMermaidJs } = require('./env');
 
-const ROOT = 'D:\\src\\moon\\moonbit_markdown';
+const puppeteer = findPuppeteer();
+
 const SRC = path.join(ROOT, 'riantr-moonbit_doubleML_0.164.28_0.1.20261012_20261023T005706Z.mmd');
-const MERMAID_MIN = 'C:\\Users\\hp\\AppData\\Roaming\\npm\\node_modules\\@mermaid-js\\mermaid-cli\\node_modules\\mermaid\\dist\\mermaid.min.js';
-const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+const MERMAID_MIN = findMermaidJs();
+const CHROME = findChrome();
 const OUT_PDF = path.join(ROOT, 'moonbit_doubleML_state_diagram.pdf');
+
+if (!MERMAID_MIN) {
+  console.error(
+    'the mermaid runtime was not found. Install it (npm i -g @mermaid-js/mermaid-cli) ' +
+    'or point MERMAID_JS at mermaid.min.js.',
+  );
+  process.exit(1);
+}
 
 const EM = String.fromCharCode(8212);
 const SLICE_FILES = 12;      // files per overview slice
@@ -362,7 +371,8 @@ const PRINT_CSS = `
 // ---------------------------------------------------------------- render
 (async () => {
   const browser = await puppeteer.launch({
-    executablePath: CHROME,
+    // an empty path means "the browser puppeteer brought with it"
+    ...(CHROME ? { executablePath: CHROME } : {}),
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     headless: 'new',
     protocolTimeout: 1800000,

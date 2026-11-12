@@ -27,16 +27,56 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
-MERMAID_MIN = Path(
-    r"C:\Users\hp\AppData\Roaming\npm\node_modules\@mermaid-js\mermaid-cli"
-    r"\node_modules\mermaid\dist\mermaid.min.js"
-)
+
+def mermaid_runtime() -> Path:
+    """The mermaid runtime to inline.
+
+    Looked up in the same order as the JavaScript tools: an environment
+    variable first, then the usual places a global npm install puts it.
+    """
+    wanted = os.environ.get("MERMAID_JS")
+    if wanted:
+        p = Path(wanted)
+        if not p.exists():
+            raise SystemExit(f"no mermaid runtime at {wanted}")
+        return p
+    roots: list[Path] = []
+    if os.environ.get("NPM_CONFIG_PREFIX"):
+        roots.append(Path(os.environ["NPM_CONFIG_PREFIX"]) / "lib" / "node_modules")
+    if os.name == "nt":
+        if os.environ.get("APPDATA"):
+            roots.append(Path(os.environ["APPDATA"]) / "npm" / "node_modules")
+        if os.environ.get("ProgramData"):
+            roots.append(Path(os.environ["ProgramData"]) / "npm" / "node_modules")
+    else:
+        roots.append(Path("/usr/local/lib/node_modules"))
+        roots.append(Path("/usr/lib/node_modules"))
+        home = Path.home()
+        roots.append(home / ".npm-global" / "lib" / "node_modules")
+        roots.append(home / ".local" / "lib" / "node_modules")
+    relatives = [
+        Path("@mermaid-js/mermaid-cli/node_modules/mermaid/dist/mermaid.min.js"),
+        Path("mermaid/dist/mermaid.min.js"),
+    ]
+    for root in roots:
+        for rel in relatives:
+            p = root / rel
+            if p.exists():
+                return p
+    raise SystemExit(
+        "the mermaid runtime was not found. Install it (npm i -g @mermaid-js/mermaid-cli) "
+        "or point MERMAID_JS at mermaid.min.js."
+    )
+
+
+MERMAID_MIN = mermaid_runtime()
 
 
 def parse_header(lines: list[str]) -> dict[str, str]:
