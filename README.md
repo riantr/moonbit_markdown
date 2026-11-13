@@ -101,7 +101,8 @@ moon run . mmd2measure <in.mmd>               # the measured geometry, for check
 Options: `--mermaid-js <path>` (the mermaid runtime to inline),
 `--chrome <path>` (the browser to drive), `--header-footer` (let the browser
 print its own header and footer; off by default, because the document carries
-its own margins).
+its own margins), `--figures-one-page` (give every diagram a page of its own;
+see below).
 
 Both paths have a default, and the defaults are the ones on the machine this
 was written on — Chrome under `C:\Program Files`, the runtime inside the
@@ -114,6 +115,28 @@ already laid out, and Chrome only turns it into PDF pages.
 Both kinds of document print as A4 portrait with 12 mm margins. The Mermaid
 runtime is 2.6 MB, so a Markdown page only carries it when the document
 actually holds a diagram; a document without one stays a few kilobytes.
+
+### Putting each figure on its own page
+
+`--figures-one-page` answers two requests with one switch, because on paper
+they are the same request: no drawing is to be broken across a sheet boundary.
+
+On the Markdown side the flag adds a print media block that pushes a page break
+before and after every diagram and shrinks the drawing into the height of one
+sheet, so a long document keeps its prose paginated as before and each figure
+gets a whole page in the middle of it. With a single diagram in the document,
+that page is the whole document.
+
+On the scan side the flag replaces the sliced report with a single page: the
+whole scan is drawn once and the browser scales it to fit, so a 221 file scan
+that normally prints as 117 pages comes out as one. The appendices are not
+printed in this mode — the page is the drawing.
+
+The trade is real and stated rather than hidden. A scan drawing is about 9:1,
+so on a portrait sheet it becomes a wide band and its labels shrink with it:
+the 221 file scan prints its node labels at 0.48 pt. The page shows the shape
+of the whole scan and does not pretend to be readable at that size. When the
+text has to be legible, the sliced default is the layout that is meant for it.
 
 `md_with_diagram.md` is a small document that exercises the Markdown side and
 the Mermaid side at once.

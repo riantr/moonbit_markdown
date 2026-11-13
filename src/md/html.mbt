@@ -316,6 +316,20 @@ pub fn needs_runtime(blocks : Array[Block]) -> Bool {
 }
 
 ///|
+/// The stylesheet that puts each diagram on a page of its own.
+///
+/// A diagram that is wider than the page cannot be printed at a readable size
+/// without either shrinking it past legibility or letting the browser break it
+/// across two sheets. This mode gives the drawing a page to itself and scales
+/// it down until it fits, so one diagram is always exactly one page.
+///
+/// Only the print media block is affected: on screen the page keeps reading as
+/// a document, and the PDF gets the figure pages because that is the medium the
+/// rule was written for.
+///
+pub const FIGURE_CSS : String = "@media print{main.figures-one-page .mermaid{break-before:page;break-after:page;page-break-before:always;page-break-after:always;height:265mm;display:flex;align-items:center;justify-content:center;margin:0;overflow:hidden}main.figures-one-page .mermaid svg{max-width:100%!important;max-height:265mm!important;width:auto!important;height:auto!important}}"
+
+///|
 /// The default stylesheet, used by `render_page`.
 
 ///|
@@ -333,6 +347,7 @@ pub fn render_page(
   title : String,
   body : String,
   mermaid_js : String,
+  figures_one_page? : Bool = false,
 ) -> String {
   let sb = StringBuilder()
   sb.write_string(
@@ -345,7 +360,18 @@ pub fn render_page(
   sb.write_string(escape_html(title))
   sb.write_string("</title>\n<style>\n")
   sb.write_string(DEFAULT_CSS)
-  sb.write_string("\n</style>\n</head>\n<body>\n<main>\n")
+  if figures_one_page {
+    sb.write_string("\n")
+    sb.write_string(FIGURE_CSS)
+  }
+  sb.write_string("\n</style>\n</head>\n<body>\n")
+  if figures_one_page {
+    // the class is what the figure rules hang on: the body is untouched, so
+    // the same Markdown renders the same way in both modes
+    sb.write_string("<main class=\"figures-one-page\">\n")
+  } else {
+    sb.write_string("<main>\n")
+  }
   sb.write_string(body)
   sb.write_string("</main>\n")
   if !mermaid_js.is_empty() {

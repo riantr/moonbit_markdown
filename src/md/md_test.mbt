@@ -688,3 +688,21 @@ test "a definition may not interrupt a paragraph" {
     _ => @test.fail("expected a paragraph")
   }
 }
+
+///|
+test "the one-page switch changes the wrapper and nothing else" {
+  let plain = @md.render_page("T", "<p>x</p>", "")
+  let one = @md.render_page("T", "<p>x</p>", "", figures_one_page=true)
+  // the class is the hook the figure rules hang on, so the default page has
+  // to have no trace of it
+  @test.assert_eq(plain.contains("figures-one-page"), false)
+  @test.assert_eq(one.contains("<main class=\"figures-one-page\">\n"), true)
+  @test.assert_eq(one.contains(@md.FIGURE_CSS), true)
+  // and the rules are a print media block: on screen the page still reads as
+  // a document, so the switch cannot change what a reader sees
+  @test.assert_eq(@md.FIGURE_CSS.contains("@media print{"), true)
+  @test.assert_eq(@md.DEFAULT_CSS.contains("break-before"), false)
+  // the body is rendered identically - only the wrapper differs
+  @test.assert_eq(plain.contains("<main>\n<p>x</p></main>"), true)
+  @test.assert_eq(one.contains("<p>x</p></main>"), true)
+}

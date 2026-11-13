@@ -15,6 +15,9 @@
 ///   --chrome <path>       the Chrome/Edge binary to drive for PDF output
 ///   --header-footer       let the browser print its own header and footer
 ///                          (off by default: the document has its own margins)
+///   --figures-one-page    one diagram, one page: the drawing gets a page to
+///                          itself and is scaled down until it fits, instead
+///                          of being broken across two sheets (off by default)
 ///
 /// NOTE ON EXIT CODES: MoonBit exposes no process-exit entry point in the
 /// packages available here, so a failure prints an ERROR line on stderr and
@@ -54,6 +57,9 @@ fn usage() -> Unit {
   println("  --chrome <path>        the Chrome binary to drive for PDF output")
   println(
     "  --header-footer        let the browser print its own header and footer",
+  )
+  println(
+    "  --figures-one-page     give each diagram a page of its own, scaled to fit",
   )
 }
 
@@ -171,6 +177,7 @@ async fn md_to_html(
   in_path : String,
   out_path : String,
   mermaid_js_path : String,
+  figures_one_page : Bool,
 ) -> Unit {
   match read_text(in_path) {
     Some(src) => {
@@ -191,7 +198,12 @@ async fn md_to_html(
       } else {
         ""
       }
-      let page = @md.render_page(file_title(in_path), body, mermaid_js)
+      let page = @md.render_page(
+        file_title(in_path),
+        body,
+        mermaid_js,
+        figures_one_page~,
+      )
       write_text(out_path, page)
     }
     None => ()
@@ -317,6 +329,7 @@ async fn mmd_to_pdf(
   mermaid_js_path : String,
   chrome : String,
   header_footer : Bool,
+  figures_one_page : Bool,
 ) -> Unit {
   match read_text(in_path) {
     Some(src) => {
@@ -332,6 +345,15 @@ async fn mmd_to_pdf(
         }
       }
       let p = @printpdf.plan(d)
+      if figures_one_page {
+        // the whole drawing on one sheet: there is nothing to measure and
+        // nothing to slice, so the report geometry has no say here
+        let print_path = sidecar_path(out_path, ".print.html")
+        @fs.write_file(print_path, @printpdf.print_one_page(d, mermaid_js))
+        println("wrote \{print_path} (\{@fs.file_size(print_path) / 1024} KB)")
+        print_to_pdf(print_path, out_path, chrome, header_footer)
+        return
+      }
       if p.detail_index < 0 {
         println(
           "ERROR\tthis scan has no file with an actionable finding, so there is no detail section",
@@ -401,6 +423,7 @@ pub async fn run(args : Array[String]) -> Unit {
   let mut mermaid_js_path = DEFAULT_MERMAID_JS
   let mut chrome = DEFAULT_CHROME
   let mut header_footer = false
+  let mut figures_one_page = false
   while i < args.length() {
     let a = args[i]
     if a == "--mermaid-js" && i + 1 < args.length() {
@@ -409,6 +432,10 @@ pub async fn run(args : Array[String]) -> Unit {
     } else if a == "--chrome" && i + 1 < args.length() {
       i += 1
       chrome = args[i]
+    } else if a == "--figures-one-page" {
+      // one diagram, one page: the drawing is scaled down until it fits,
+      // instead of being broken across two sheets
+      figures_one_page = true
     } else if a == "--header-footer" {
       // the browser's own header and footer are off by default: the document
       // carries its own margins, and the browser's date-and-URL banner would
@@ -427,7 +454,7 @@ pub async fn run(args : Array[String]) -> Unit {
         usage()
         return
       }
-      md_to_html(positional[0], positional[1], mermaid_js_path)
+      md_to_html(positional[0], positional[1], mermaid_js_path, figures_one_page)
     }
     "mmd2html" => {
       if positional.length() < 2 {
@@ -449,7 +476,7 @@ pub async fn run(args : Array[String]) -> Unit {
         return
       }
       let tmp = sidecar_path(positional[1], ".html")
-      md_to_html(positional[0], tmp, mermaid_js_path)
+      md_to_html(positional[0], tmp, mermaid_js_path, figures_one_page)
       print_to_pdf(tmp, positional[1], chrome, header_footer)
     }
     "mmd2measure" => {
@@ -470,6 +497,7 @@ pub async fn run(args : Array[String]) -> Unit {
         mermaid_js_path,
         chrome,
         header_footer,
+        figures_one_page,
       )
     }
     _ => usage()

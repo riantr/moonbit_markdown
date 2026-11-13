@@ -59,7 +59,15 @@ pub const HC_PX : Double = PAGE_H_PX - CAP_PX
 /// needs no script to scale the drawings: the mathematics of the scale is
 /// the viewBox's, and the page still decides what goes on it.
 ///
-pub const PRINT_CSS_EXTRA : String = ".crop>.holder.fit{width:100%;height:100%}"
+pub const PRINT_CSS_EXTRA : String = ".crop>.holder.fit{width:100%;height:100%}" +
+  // The one-page mode: the page is a column that spends one caption line at
+  // the top and gives everything else to the drawing. The holder is the whole
+  // remaining box, and the SVG fills it with `preserveAspectRatio`, so the
+  // browser does the fitting and no scale has to be computed here.
+  ".onepage{display:flex;flex-direction:column;height:273mm}" +
+  ".onepage .fitbox{flex:1;position:relative;min-height:0}" +
+  ".onepage .fitbox>.holder{position:absolute;left:0;top:0;width:100%;height:100%}" +
+  ".onepage .fitbox svg{display:block}"
 
 ///|
 /// What is going to be printed.
@@ -456,6 +464,10 @@ fn print_script() -> String {
     "  function fit(svg, el) {", "    var m = svg.match(/viewBox=\"([^\"]+)\"/);",
     "    if (!m) { return svg; }", "    var vb = m[1];", "    var attrs;", "    if (el.dataset.mode === 'map') {",
     "      attrs = ' width=\"' + el.dataset.w + '\" height=\"' + el.dataset.h + '\" viewBox=\"' + vb + '\"';",
+    "    } else if (el.dataset.mode === 'fit') {",
+    // one page: the drawing fills its holder and the browser scales it down,
+    // centred, so nothing is cropped and nothing spills onto a second sheet
+    "      attrs = ' width=\"100%\" height=\"100%\" viewBox=\"' + vb + '\" preserveAspectRatio=\"xMidYMid meet\"';",
     "    } else {", "      attrs = ' width=\"100%\" height=\"100%\" viewBox=\"' + vb + '\" preserveAspectRatio=\"xMinYMin meet\"';",
     "    }", "    var s = svg.replace(/style=\"max-width:[^\"]*\"/, 'style=\"max-width:none\"');",
     "    s = s.replace(/<svg([^>]*)>/, function (whole, a) {", "      a = a.replace(/\\s*width=\"[^\"]*\"/, '');",
@@ -469,6 +481,52 @@ fn print_script() -> String {
     "      step();", "    });", "  }", "  step();", "})();",
   ]
   lines.join("\n")
+}
+
+///|
+/// Build the whole scan as ONE page.
+///
+/// The report layout slices the drawing because a 16,302 px strip cropped into
+/// readable windows is how the text stays legible. That is the right default
+/// for reading, and the wrong one when what is wanted is "the picture, on a
+/// page". This mode draws every file in one diagram and lets the browser scale
+/// it down until it fits the sheet, so the result is exactly one page and
+/// nothing is cut off.
+///
+/// The trade is stated rather than hidden: a diagram that is 9:1 becomes a wide
+/// band on a portrait sheet, and its labels are small. The page is one page,
+/// not a readable enlargement of one.
+///
+pub fn print_one_page(d : @mermaid.Diagram, mermaid_js : String) -> String {
+  let src = slice_source(d, 0, d.files.length())
+  let sources : Array[String] = [src]
+  let caption = "the whole scan - " +
+    d.files.length().to_string() +
+    " files, " +
+    @mermaid.drawn_notices(d).to_string() +
+    " notice states, on one page"
+  let sb = StringBuilder()
+  sb.write_string(
+    "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>",
+  )
+  sb.write_string(@mermaid.meta_of(d, "target"))
+  sb.write_string(" &mdash; state diagram (one page)</title>\n<style>\n")
+  sb.write_string(PRINT_CSS)
+  sb.write_string(PRINT_CSS_EXTRA)
+  sb.write_string("\n</style>\n</head>\n<body>\n")
+  sb.write_string("<div class=\"page onepage\">\n<p class=\"slice-cap\">")
+  sb.write_string(esc(caption))
+  sb.write_string(
+    "</p>\n<div class=\"fitbox\"><div class=\"holder\" data-slot=\"0\" data-mode=\"fit\"></div></div>\n</div>\n",
+  )
+  sb.write_string("<script type=\"application/json\" id=\"srcs\">")
+  sb.write_string(sources_json(sources))
+  sb.write_string("</script>\n<script id=\"rt\">")
+  sb.write_string(mermaid_js.replace_all(old="</script", new="<\\/script"))
+  sb.write_string("</script>\n<script>\n")
+  sb.write_string(print_script())
+  sb.write_string("\n</script>\n</body>\n</html>\n")
+  sb.to_string()
 }
 
 ///|

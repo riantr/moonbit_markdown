@@ -289,3 +289,31 @@ test "the printable area is the size the layout assumes" {
   @test.assert_eq(@printpdf.fmt1(@printpdf.HC_PX * 25.4 / 96.0), "266.7")
   @test.assert_eq(@printpdf.HC_PX, @printpdf.PAGE_H_PX - @printpdf.CAP_PX)
 }
+
+///|
+test "the one-page mode draws the whole scan once, with no slices" {
+  let d = @mermaid.parse_diagram(fixture())
+  let doc = @printpdf.print_one_page(d, "")
+  // one page and one drawing: none of the slice machinery is used
+  @test.assert_eq(count_of(doc, "class=\"page"), 1)
+  @test.assert_eq(count_of(doc, "class=\"holder"), 1)
+  // one holder, and the script reaches exactly that slot: the plain
+  // `data-slot=` count would also match the selector in the script
+  @test.assert_eq(count_of(doc, "data-slot=\"0\""), 1)
+  // the scale is left to the browser, so the holder asks for fit rather than
+  // for one of the two crop modes
+  @test.assert_eq(doc.contains("data-mode=\"fit\""), true)
+  @test.assert_eq(doc.contains("preserveAspectRatio=\"xMidYMid meet\""), true)
+  @test.assert_eq(doc.contains("<div class=\"page onepage\">"), true)
+  // the whole source goes to mermaid in one piece: both files are in it
+  @test.assert_eq(doc.contains("f1 "), true)
+  @test.assert_eq(doc.contains("f98"), true)
+  // and the caption says what the page is, at the top of the page
+  @test.assert_eq(doc.contains("2 files"), true)
+  @test.assert_eq(
+    doc.contains(@mermaid.drawn_notices(d).to_string() + " notice states"),
+    true,
+  )
+  // no appendix travels with the one-page view
+  @test.assert_eq(doc.contains("Appendix"), false)
+}
