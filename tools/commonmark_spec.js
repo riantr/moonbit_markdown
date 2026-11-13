@@ -112,10 +112,20 @@ function prepare(spec) {
   });
 }
 
-function renderAll(spec) {
+/**
+ * Render the examples, or only the ones of `section` when one is given.
+ *
+ * Rendering every example takes a couple of minutes, because each one is a
+ * separate run of the command line tool; looking at one section should not
+ * cost that.
+ */
+function renderAll(spec, section) {
   const t0 = Date.now();
   let failed = 0;
+  let count = 0;
   spec.forEach((e, i) => {
+    if (section !== undefined && e.section !== section) return;
+    count += 1;
     const name = String(i + 1).padStart(4, '0');
     const r = spawnSync('moon', ['run', '.', 'md2html', path.join(IN_DIR, name + '.md'), path.join(OUT_DIR, name + '.html')], {
       cwd: ROOT,
@@ -127,7 +137,7 @@ function renderAll(spec) {
       console.error('example ' + e.example + ' did not render');
     }
   });
-  console.log('rendered ' + spec.length + ' examples in ' + ((Date.now() - t0) / 1000).toFixed(1) +
+  console.log('rendered ' + count + ' examples in ' + ((Date.now() - t0) / 1000).toFixed(1) +
     ' s, ' + failed + ' failed');
 }
 
@@ -140,7 +150,10 @@ function compare(spec) {
     try {
       mine = fs.readFileSync(p, 'utf8');
     } catch {
-      results.push({ n: e.example, section: e.section, ok: false, why: 'no output' });
+      results.push({
+        n: e.example, section: e.section, ok: false, why: 'no output',
+        mine: '', want: canonical(e.html), markdown: e.markdown,
+      });
       continue;
     }
     const a = canonical(bodyOf(mine));
@@ -194,9 +207,12 @@ function main() {
   ensureSpec();
   const spec = JSON.parse(fs.readFileSync(SPEC_FILE, 'utf8'));
   if (args[0] === '--show') {
-    // compare what is already rendered, without rendering again
+    // render the section that is asked about, and show what differs in it
+    const section = args[1] || 'all';
+    prepare(spec);
+    renderAll(spec, section === 'all' ? undefined : section);
     const results = compare(spec);
-    show(results, args[1] || 'all', Number(args[2] || 5));
+    show(results, section, Number(args[2] || 5));
     return;
   }
   prepare(spec);
