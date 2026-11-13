@@ -58,7 +58,7 @@ pub enum Block {
   Mermaid(String)
   HtmlBlock(String)
   Quote(Array[Block])
-  List(Bool, Array[ListItem])
+  List(Bool, Bool, Array[ListItem])
   Rule
   Table(Array[TableCell], Array[String], Array[TableRow])
 }
@@ -68,7 +68,7 @@ pub enum Inline {
   Code(String)
   Emphasis(Array[Inline])
   Strong(Array[Inline])
-  Link(String, Array[Inline])
+  Link(String, String, Array[Inline])
   Image(String, String)
   RawHtml(String)
   HardBreak

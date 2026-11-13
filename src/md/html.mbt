@@ -48,10 +48,16 @@ pub fn render_inline(items : Array[Inline]) -> String {
         sb.write_string(render_inline(cs))
         sb.write_string("</strong>")
       }
-      Link(href, cs) => {
+      Link(href, title, cs) => {
         sb.write_string("<a href=\"")
         sb.write_string(escape_html(href))
-        sb.write_string("\">")
+        sb.write_string("\"")
+        if !title.is_empty() {
+          sb.write_string(" title=\"")
+          sb.write_string(escape_html(title))
+          sb.write_string("\"")
+        }
+        sb.write_string(">")
         sb.write_string(render_inline(cs))
         sb.write_string("</a>")
       }
@@ -87,10 +93,12 @@ fn heading_id(text : String) -> String {
 
 ///|
 /// Render a list, honouring task list items.
+///
+/// The paragraphs of a tight list are written without their wrapper, the
+/// ones of a loose list with it.
 
 ///|
-fn render_list(ordered : Bool, items : Array[ListItem]) -> String {
-  let sb = StringBuilder()
+fn render_list(ordered : Bool, loose : Bool, items : Array[ListItem]) -> String {  let sb = StringBuilder()
   let tag = if ordered { "ol" } else { "ul" }
   sb.write_string("<")
   sb.write_string(tag)
@@ -107,16 +115,8 @@ fn render_list(ordered : Bool, items : Array[ListItem]) -> String {
       sb.write_string(checked)
       sb.write_string("> ")
     }
-    let body = render_blocks(it.blocks)
-    // a single paragraph inside a list item does not need the <p> wrapper
-    if it.blocks.length() == 1 {
-      match it.blocks[0] {
-        Paragraph(cs) => sb.write_string(render_inline(cs))
-        _ => sb.write_string(body)
-      }
-    } else {
-      sb.write_string(body)
-    }
+    let body = render_blocks_tight(it.blocks, !loose)
+    sb.write_string(body)
     sb.write_string("</li>")
   }
   sb.write_string("</")
@@ -127,8 +127,25 @@ fn render_list(ordered : Bool, items : Array[ListItem]) -> String {
 
 ///|
 pub fn render_blocks(blocks : Array[Block]) -> String {
+  render_blocks_tight(blocks, false)
+}
+
+///|
+/// Render the blocks, with or without the wrapper of the paragraphs.
+///
+/// The paragraphs of a tight list item are written without their wrapper,
+/// even when the item holds other blocks as well.
+///
+fn render_blocks_tight(blocks : Array[Block], tight : Bool) -> String {
   let sb = StringBuilder()
+  let mut first = true
   for b in blocks {
+    if !first && tight {
+      // the blocks of a tight item stand one after the other, with a line
+      // ending between them
+      sb.write_string("\n")
+    }
+    first = false
     match b {
       Heading(level, cs) => {
         sb.write_string("<h")
@@ -142,9 +159,13 @@ pub fn render_blocks(blocks : Array[Block]) -> String {
         sb.write_string(">")
       }
       Paragraph(cs) => {
-        sb.write_string("<p>")
-        sb.write_string(render_inline(cs))
-        sb.write_string("</p>\n")
+        if tight {
+          sb.write_string(render_inline(cs))
+        } else {
+          sb.write_string("<p>")
+          sb.write_string(render_inline(cs))
+          sb.write_string("</p>\n")
+        }
       }
       CodeBlock(info, code) => {
         sb.write_string("<pre><code")
@@ -171,8 +192,8 @@ pub fn render_blocks(blocks : Array[Block]) -> String {
         sb.write_string(render_blocks(bs))
         sb.write_string("</blockquote>\n")
       }
-      List(ordered, items) => {
-        sb.write_string(render_list(ordered, items))
+      List(ordered, loose, items) => {
+        sb.write_string(render_list(ordered, loose, items))
         sb.write_string("\n")
       }
       Rule => sb.write_string("<hr>\n")
@@ -253,7 +274,7 @@ fn collect_toc_into(blocks : Array[Block], out : Array[TocEntry]) -> Unit {
           text: plain_text(cs),
         })
       Quote(inner) => collect_toc_into(inner, out)
-      List(_, items) =>
+      List(_, _, items) =>
         for it in items {
           collect_toc_into(it.blocks, out)
         }
@@ -281,7 +302,7 @@ pub fn needs_runtime(blocks : Array[Block]) -> Bool {
           return true
         }
       }
-      List(_, items) => {
+      List(_, _, items) => {
         for it in items {
           if needs_runtime(it.blocks) {
             return true

@@ -169,22 +169,45 @@ shift every index after the emoji, and the parser then dropped the state
 because the ` as id` behind it was no longer where it looked. There are
 regression tests for exactly that.
 
-## Deviations from CommonMark
+## How close to CommonMark is the Markdown parser?
 
-The Markdown parser covers the common subset: ATX headings, paragraphs,
-fenced and indented code, block quotes, ordered/unordered and task lists,
-GFM tables, thematic breaks, raw HTML blocks, link reference style is not
-implemented. Inline: code spans, emphasis and strong emphasis, links,
-images, autolinks, raw inline HTML, backslash escapes, hard and soft line
-breaks.
+Measured against the [CommonMark 0.31.2 spec](https://spec.commonmark.org/0.31.2/spec.json)
+— its 652 examples, each rendered and compared with the expected HTML:
 
-Emphasis uses a delimiter run: a run of `*` or `_` opens only when followed
-by non-space and closes only when preceded by non-space. The opener and the
-closer are matched by scanning forward for a run of the same character at
-least as long as the opener. That is CommonMark's rule simplified to the
-cases that occur in practice; the "rule of three" (a run that can both open
-and close is treated as literal when it is adjacent to another delimiter) is
-not implemented.
+```
+node tools/commonmark_spec.js          # render every example and compare
+node tools/commonmark_spec.js --show Links 5   # the examples of one section
+```
+
+The script downloads the spec and the reference implementation's entity table
+on the first run and keeps them in `tools/commonmark/`, which is not part of
+the repository. The two sides are reduced to the same form before they are
+compared — the whitespace between the tags carries no meaning, the attributes
+that matter are kept, and the character references are decoded on both sides.
+
+The HTML5 table of the named character references in `src/md/entity.mbt` is
+generated as well: `node tools/gen_entity_table.js` writes it from the
+reference implementation's table, so that the two thousand names do not have
+to be typed by hand.
+
+**575 of the 652 examples agree (88.2 %).** The sections that agree completely:
+thematic breaks, ATX headings, indented and fenced code, HTML blocks, link
+reference definitions (26 of 27), paragraphs, blank lines, block quotes, list
+items, code spans, images, autolinks, raw HTML, backslash escapes, the HTML5
+character references, hard and soft line breaks, and the textual content.
+
+What is left is stated rather than hidden:
+
+| section | | |
+| --- | --- | --- |
+| emphasis and strong emphasis | 75/132 | the full delimiter-stack algorithm of the spec — the "rule of three" and the nesting of emphasis — is not implemented; the parser pairs an opener with the next closer that fits |
+| links | 78/90 | the same, and the cases where the text of a link holds an unfinished HTML tag |
+| lists | 22/26 | a list whose item holds a nested list with a blank line inside it is called loose when the spec calls it tight |
+| tabs | 9/11 | the tab stops inside a list item are counted in columns, not in tab stops |
+| setext headings, link reference definitions | 26/27 each | one case each |
+
+The report of the script lists the examples that differ, section by section,
+which is the honest measure of what is left.
 
 ## Tests
 

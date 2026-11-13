@@ -13,7 +13,8 @@ pub enum Inline {
   Code(String)
   Emphasis(Array[Inline])
   Strong(Array[Inline])
-  Link(String, Array[Inline])
+  /// the destination, the title, the content
+  Link(String, String, Array[Inline])
   Image(String, String)
   RawHtml(String)
   HardBreak
@@ -30,8 +31,13 @@ pub enum Block {
   Mermaid(String)
   HtmlBlock(String)
   Quote(Array[Block])
-  /// ordered?, items
-  List(Bool, Array[ListItem])
+  /// ordered?, loose?, items
+  ///
+  /// A list is loose when its items are separated by blank lines, or when
+  /// one of its items holds two blocks with a blank line between them. The
+  /// paragraphs of a loose list are written as paragraphs, the ones of a
+  /// tight list are not.
+  List(Bool, Bool, Array[ListItem])
   Rule
   /// head cells, alignments, body rows
   Table(Array[TableCell], Array[String], Array[TableRow])

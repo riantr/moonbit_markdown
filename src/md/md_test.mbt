@@ -101,8 +101,9 @@ test "link and image" {
       // link, space, image
       @test.assert_eq(cs.length(), 3)
       match cs[0] {
-        Link(href, inner) => {
+        Link(href, title, inner) => {
           @test.assert_eq(href, "http://example.com/a")
+          @test.assert_eq(title, "")
           @test.assert_eq(@md.plain_text(inner), "text")
         }
         _ => @test.fail("expected link")
@@ -174,7 +175,7 @@ test "unordered list with nested content" {
   let blocks = @md.parse_document("- one\n- two\n")
   @test.assert_eq(blocks.length(), 1)
   match blocks[0] {
-    List(ordered, items) => {
+    List(ordered, _, items) => {
       @test.assert_eq(ordered, false)
       @test.assert_eq(items.length(), 2)
       @test.assert_eq(items[0].task, 0)
@@ -187,7 +188,7 @@ test "unordered list with nested content" {
 test "ordered list" {
   let blocks = @md.parse_document("1. one\n2. two\n")
   match blocks[0] {
-    List(ordered, items) => {
+    List(ordered, _, items) => {
       @test.assert_eq(ordered, true)
       @test.assert_eq(items.length(), 2)
     }
@@ -199,7 +200,7 @@ test "ordered list" {
 test "task list item" {
   let blocks = @md.parse_document("- [x] done\n- [ ] todo\n")
   match blocks[0] {
-    List(_, items) => {
+    List(_, _, items) => {
       @test.assert_eq(items.length(), 2)
       @test.assert_eq(items[0].task, 2)
       @test.assert_eq(items[1].task, 1)
@@ -347,4 +348,343 @@ test "the runtime is only needed when the document holds a diagram" {
     @md.needs_runtime(with_mermaid),
     @md.render_blocks(with_mermaid).contains("<div class=\"mermaid\">"),
   )
+}
+
+///|
+test "a tab is four columns of indentation" {
+  // a tab at the head of a line is an indented code block, not a paragraph
+  let blocks = @md.parse_document("\tfoo\tbaz\t\tbim\n")
+  @test.assert_eq(blocks.length(), 1)
+  match blocks[0] {
+    CodeBlock(_, content) => @test.assert_eq(content, "foo\tbaz\t\tbim\n")
+    _ => @test.fail("expected a code block")
+  }
+}
+
+///|
+test "four columns of indentation make a code block, not a break" {
+  let blocks = @md.parse_document("    ***\n")
+  @test.assert_eq(blocks.length(), 1)
+  match blocks[0] {
+    CodeBlock(_, content) => @test.assert_eq(content, "***\n")
+    _ => @test.fail("expected a code block")
+  }
+}
+
+///|
+test "character references are decoded" {
+  let blocks = @md.parse_document("&amp; &copy; &#233; &#x41; &MadeUp;\n")
+  match blocks[0] {
+    Paragraph(cs) => {
+      @test.assert_eq(@md.plain_text(cs), "& © é A &MadeUp;")
+    }
+    _ => @test.fail("expected a paragraph")
+  }
+}
+
+///|
+test "a link destination follows the CommonMark rules" {
+  // an empty destination between angle brackets is a link
+  let blocks = @md.parse_document("[link](<>)\n")
+  match blocks[0] {
+    Paragraph(cs) => match cs[0] {
+      Link(href, _, _) => @test.assert_eq(href, "")
+      _ => @test.fail("expected a link")
+    }
+    _ => @test.fail("expected a paragraph")
+  }
+  // a bare destination may not hold a space, so this is not a link at all
+  let blocks = @md.parse_document("[link](/my uri)\n")
+  match blocks[0] {
+    Paragraph(cs) => @test.assert_eq(@md.plain_text(cs), "[link](/my uri)")
+    _ => @test.fail("expected a paragraph")
+  }
+  // between angle brackets a space is written back as %20
+  let blocks = @md.parse_document("[link](</my uri>)\n")
+  match blocks[0] {
+    Paragraph(cs) => match cs[0] {
+      Link(href, _, _) => @test.assert_eq(href, "/my%20uri")
+      _ => @test.fail("expected a link")
+    }
+    _ => @test.fail("expected a paragraph")
+  }
+}
+
+///|
+test "a link may carry a title" {
+  let blocks = @md.parse_document("[link](/url \"the title\")\n")
+  match blocks[0] {
+    Paragraph(cs) => match cs[0] {
+      Link(href, title, _) => {
+        @test.assert_eq(href, "/url")
+        @test.assert_eq(title, "the title")
+      }
+      _ => @test.fail("expected a link")
+    }
+    _ => @test.fail("expected a paragraph")
+  }
+}
+
+///|
+test "link reference definitions" {
+  let blocks = @md.parse_document("[foo][bar]\n\n[bar]: /url \"title\"\n")
+  @test.assert_eq(blocks.length(), 1)
+  match blocks[0] {
+    Paragraph(cs) => match cs[0] {
+      Link(href, title, _) => {
+        @test.assert_eq(href, "/url")
+        @test.assert_eq(title, "title")
+      }
+      _ => @test.fail("expected a link")
+    }
+    _ => @test.fail("expected a paragraph")
+  }
+  // the shortcut form: the text is the label
+  let blocks = @md.parse_document("[bar]\n\n[bar]: /url\n")
+  match blocks[0] {
+    Paragraph(cs) => match cs[0] {
+      Link(href, _, _) => @test.assert_eq(href, "/url")
+      _ => @test.fail("expected a link")
+    }
+    _ => @test.fail("expected a paragraph")
+  }
+  // an undefined label stays literal text
+  let blocks = @md.parse_document("[nope]\n")
+  match blocks[0] {
+    Paragraph(cs) => @test.assert_eq(@md.plain_text(cs), "[nope]")
+    _ => @test.fail("expected a paragraph")
+  }
+}
+
+///|
+test "a different marker starts a different list" {
+  let blocks = @md.parse_document("- foo\n+ bar\n")
+  @test.assert_eq(blocks.length(), 2)
+  @test.assert_eq(@md.render_blocks(blocks).contains("<ul><li>foo</li></ul>"), true)
+}
+
+///|
+test "an ordered list only interrupts a paragraph when it starts with 1" {
+  // this is a paragraph, not a list
+  let blocks = @md.parse_document("The number of doors is\n14.  The number of windows is 6.\n")
+  @test.assert_eq(blocks.length(), 1)
+  match blocks[0] {
+    Paragraph(_) => ()
+    _ => @test.fail("expected a paragraph")
+  }
+  // this one does start a list
+  let blocks = @md.parse_document("The number of doors is\n1.  The number of windows is 6.\n")
+  @test.assert_eq(blocks.length(), 2)
+}
+
+///|
+test "an autolink may carry any scheme" {
+  let blocks = @md.parse_document("<localhost:5001/foo>\n")
+  match blocks[0] {
+    Paragraph(cs) => match cs[0] {
+      Link(href, _, _) => @test.assert_eq(href, "localhost:5001/foo")
+      _ => @test.fail("expected a link")
+    }
+    _ => @test.fail("expected a paragraph")
+  }
+}
+
+///|
+test "an inline HTML comment is raw" {
+  let html = @md.render("foo <!-- a comment -->\n")
+  @test.assert_eq(html.contains("<!-- a comment -->"), true)
+}
+
+///|
+test "an html block of a comment runs to its own marker" {
+  let blocks = @md.parse_document("<!-- foo\n\nbar -->\nokay\n")
+  @test.assert_eq(blocks.length(), 2)
+  match blocks[0] {
+    HtmlBlock(h) => @test.assert_eq(h.contains("bar -->"), true)
+    _ => @test.fail("expected an html block")
+  }
+  match blocks[1] {
+    Paragraph(_) => ()
+    _ => @test.fail("expected a paragraph")
+  }
+}
+
+///|
+test "a block level tag ends at the blank line" {
+  let blocks = @md.parse_document("<div>\n*foo*\n\nbar\n")
+  @test.assert_eq(blocks.length(), 2)
+  match blocks[0] {
+    HtmlBlock(h) => @test.assert_eq(h.contains("*foo*"), true)
+    _ => @test.fail("expected an html block")
+  }
+}
+
+///|
+test "the info string of a fence may not hold a backtick" {
+  // "``` aa ```" is a line of text, not a code block
+  let blocks = @md.parse_document("``` aa ```\nfoo\n")
+  @test.assert_eq(blocks.length(), 1)
+  match blocks[0] {
+    Paragraph(_) => ()
+    _ => @test.fail("expected a paragraph")
+  }
+}
+
+///|
+test "an email autolink gets a mailto" {
+  let blocks = @md.parse_document("<foo@bar.example.com>\n")
+  match blocks[0] {
+    Paragraph(cs) => match cs[0] {
+      Link(href, _, _) => @test.assert_eq(href, "mailto:foo@bar.example.com")
+      _ => @test.fail("expected a link")
+    }
+    _ => @test.fail("expected a paragraph")
+  }
+}
+
+///|
+test "a link destination is percent encoded" {
+  let blocks = @md.parse_document("[foo](/f&ouml;&ouml;)\n")
+  match blocks[0] {
+    Paragraph(cs) => match cs[0] {
+      Link(href, _, _) => @test.assert_eq(href, "/f%C3%B6%C3%B6")
+      _ => @test.fail("expected a link")
+    }
+    _ => @test.fail("expected a paragraph")
+  }
+}
+
+///|
+test "an illegal attribute name makes the tag literal text" {
+  let blocks = @md.parse_document("<a h*#ref=\"hi\">\n")
+  match blocks[0] {
+    Paragraph(cs) => @test.assert_eq(@md.plain_text(cs), "<a h*#ref=\"hi\">")
+    _ => @test.fail("expected a paragraph")
+  }
+}
+
+///|
+test "a heading may be indented by three columns" {
+  let blocks = @md.parse_document(" ### foo\n")
+  match blocks[0] {
+    Heading(l, cs) => {
+      @test.assert_eq(l, 3)
+      @test.assert_eq(@md.plain_text(cs), "foo")
+    }
+    _ => @test.fail("expected a heading")
+  }
+}
+
+///|
+test "a closing sequence of hashes needs a space in front of it" {
+  let blocks = @md.parse_document("# foo#\n")
+  match blocks[0] {
+    Heading(_, cs) => @test.assert_eq(@md.plain_text(cs), "foo#")
+    _ => @test.fail("expected a heading")
+  }
+}
+
+///|
+test "a collapsed reference link names the label by its text" {
+  let blocks = @md.parse_document("![foo][]\n\n[foo]: /url \"title\"\n")
+  match blocks[0] {
+    Paragraph(cs) => match cs[0] {
+      Image(src, alt) => {
+        @test.assert_eq(src, "/url")
+        @test.assert_eq(alt, "foo")
+      }
+      _ => @test.fail("expected an image")
+    }
+    _ => @test.fail("expected a paragraph")
+  }
+}
+
+///|
+test "an escaped ampersand keeps the entity literal" {
+  let blocks = @md.parse_document("\\&ouml;\n")
+  match blocks[0] {
+    Paragraph(cs) => @test.assert_eq(@md.plain_text(cs), "&ouml;")
+    _ => @test.fail("expected a paragraph")
+  }
+}
+
+///|
+test "a list keeps its items together over a blank line" {
+  let blocks = @md.parse_document("- a\n\n- b\n")
+  @test.assert_eq(blocks.length(), 1)
+  match blocks[0] {
+    List(_, loose, items) => {
+      @test.assert_eq(loose, true)
+      @test.assert_eq(items.length(), 2)
+    }
+    _ => @test.fail("expected a list")
+  }
+}
+
+///|
+test "the content of a list item starts after the spaces of the marker" {
+  // "-    foo" puts the content five columns in, so "  bar" is not part of it
+  let blocks = @md.parse_document("-    foo\n\n  bar\n")
+  @test.assert_eq(blocks.length(), 2)
+}
+
+///|
+test "an empty destination is a link" {
+  let blocks = @md.parse_document("[link]()\n")
+  match blocks[0] {
+    Paragraph(cs) => match cs[0] {
+      Link(href, _, _) => @test.assert_eq(href, "")
+      _ => @test.fail("expected a link")
+    }
+    _ => @test.fail("expected a paragraph")
+  }
+}
+
+///|
+test "a link may not hold another link" {
+  // the inner link is the one that counts, the text around it stays text
+  let blocks = @md.parse_document("[foo [bar](/uri)](/uri)\n")
+  match blocks[0] {
+    Paragraph(cs) => {
+      @test.assert_eq(@md.plain_text(cs), "[foo bar](/uri)")
+      match cs[1] {
+        Link(href, _, _) => @test.assert_eq(href, "/uri")
+        _ => @test.fail("expected a link")
+      }
+    }
+    _ => @test.fail("expected a paragraph")
+  }
+}
+
+///|
+test "a definition may be broken over lines" {
+  let blocks = @md.parse_document("[foo]:\n/url\n\n[foo]\n")
+  @test.assert_eq(blocks.length(), 1)
+  match blocks[0] {
+    Paragraph(cs) => match cs[0] {
+      Link(href, _, _) => @test.assert_eq(href, "/url")
+      _ => @test.fail("expected a link")
+    }
+    _ => @test.fail("expected a paragraph")
+  }
+}
+
+///|
+test "a definition inside a code block is no definition" {
+  let blocks = @md.parse_document("```\n[foo]: /url\n```\n\n[foo]\n")
+  @test.assert_eq(blocks.length(), 2)
+  match blocks[1] {
+    Paragraph(cs) => @test.assert_eq(@md.plain_text(cs), "[foo]")
+    _ => @test.fail("expected a paragraph")
+  }
+}
+
+///|
+test "a definition may not interrupt a paragraph" {
+  let blocks = @md.parse_document("Foo\n[bar]: /baz\n")
+  @test.assert_eq(blocks.length(), 1)
+  match blocks[0] {
+    Paragraph(cs) => @test.assert_eq(@md.plain_text(cs), "Foo [bar]: /baz")
+    _ => @test.fail("expected a paragraph")
+  }
 }

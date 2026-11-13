@@ -17,3 +17,7 @@
 
 # The screenshot verify_page.js takes on every run.
 /moonbit_page.png
+
+# The CommonMark spec and the work of measuring against it: the spec is
+# downloaded, and the rendered examples are build products.
+/tools/commonmark/
