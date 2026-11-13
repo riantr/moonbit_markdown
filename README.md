@@ -19,19 +19,21 @@ the repository root, so the two can be compared directly:
 
 ## Quick check
 
-Four commands, four one-line verdicts. They need `node`, `python` with
+Six commands, six one-line verdicts. They need `node`, `python` with
 `pypdf`, and a headless Chrome; nothing else.
 
 ```
+python ci/ci.py                                # CI PASS: 7/7 steps passed
+python ci/ci.py --tiers browser,spec           # the slow half, 4 more steps
 moon check                                     # 0 errors, 0 warnings
-moon test                                      # failed: 0
+moon test                                      # 86/86, failed: 0
 python verify_pdf_moonbit.py                   # ALL PDF COMPARISON CHECKS PASSED
 node verify_page.js moonbit_doubleML_state_diagram.html <in.mmd>
                                                # ALL PAGE CHECKS PASSED
 ```
 
-`verify_md_page.js md_with_diagram.html` checks the Markdown side and prints
-`MD PAGE CHECKS PASSED`.
+`node verify_md_page.js md_with_diagram.html` checks the Markdown side and
+prints `MD PAGE CHECKS PASSED`.
 
 The two documents are large — the page is 5.9 MB and the PDF 7.3 MB, because
 the mermaid runtime is inlined and the PDF carries 117 pages. The scripts
@@ -300,6 +302,44 @@ interface of that package, the file `moon info` writes. It belongs to the
 package and travels with it when the module is published, so it is kept in
 the tree rather than treated as build noise. It is deterministic — running
 `moon info` again reproduces it byte for byte.
+
+## Releasing
+
+The tag is the one artefact that says "this exact tree was tested", so it is
+the last thing produced and never an exception. `ci/release.py` holds that
+promise as three rules, and `ci/ci.py` is the only thing that acts on them:
+
+- **No tag while the local CI is red.** Not even on request.
+- **A tag only moves its final component**: `v0.1.0` → `v0.1.1` → `v0.1.2`.
+- **Gitee may be pushed at any time; GitHub only from a green run that has a
+  tag**, so what is published there is always a named, tested state.
+
+```
+python ci/ci.py --self-check                    # 27/27: the engine's own accounting
+python ci/ci.py                                 # env + build + gates (fast, portable)
+python ci/ci.py --tiers env,build,gates,browser,spec --check-release
+                                                # would a tag be allowed? changes nothing
+python ci/ci.py --tiers env,build,gates,browser,spec --tag --push
+```
+
+| tier | what it runs | needs |
+| --- | --- | --- |
+| `env` | `moon`, `node`, `python` versions | nothing |
+| `build` | `moon check`, `moon test`, the four pure packages on all four targets | nothing |
+| `gates` | `ci/check_artifacts.py`: the hashes pinned in the table above | the generated documents |
+| `browser` | `verify_page.js`, `verify_md_page.js`, `verify_pdf_moonbit.py` | Chrome, the generated documents |
+| `spec` | `tools/commonmark_spec.js`, against the floor this README states | the spec download |
+
+The default run is `env,build,gates` because it is portable — no browser, no
+network — and it is what a tag is normally granted from. The two opt-in tiers
+are slow, and when they are left out the tag gate **names them** rather than
+silently dropping them: a green that quietly ignored the browser checks is not
+green. A full release points at all five.
+
+The engine exists as a script rather than only as a workflow because a local
+loop and a workflow file drift apart, and this repository's promise is about
+the *local* run. `.github/workflows/ci.yml` is a thin shell that calls the same
+file, so the two cannot disagree about what passed.
 
 ## Licence
 

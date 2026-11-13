@@ -1,0 +1,43 @@
+# A thin shell around ci/ci.py.
+#
+# The accounting lives in that script, not here, so the run on GitHub and the
+# run on a developer's machine cannot disagree about what passed. Anything
+# added here that ci.py does not know about would be a second, drifting copy of
+# the same rules.
+#
+# This workflow runs `env,build` only. The `gates` tier checks the hashes of
+# the generated documents, and those documents are build products: they are
+# not in the repository (they are gitignored), so a fresh checkout has nothing
+# for that tier to hash. The tag decision is made from a LOCAL run, which is
+# the run the release rule is about.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: moon version
+        run: moon version --all
+
+      # env + build: the toolchain versions, `moon check`, `moon test`, and the
+      # four pure packages on all four targets. Portable and quick.
+      - name: ci
+        run: python3 ci/ci.py --tiers env,build

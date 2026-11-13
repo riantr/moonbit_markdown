@@ -21,3 +21,8 @@
 # The CommonMark spec and the work of measuring against it: the spec is
 # downloaded, and the rendered examples are build products.
 /tools/commonmark/
+
+# What ci/ci.py writes: the JSON report and the full output of a failing step.
+# A failing step's transcript is evidence for one run, not a file to keep.
+/ci/artifacts/
+__pycache__/
