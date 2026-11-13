@@ -317,3 +317,36 @@ test "the one-page mode draws the whole scan once, with no slices" {
   // no appendix travels with the one-page view
   @test.assert_eq(doc.contains("Appendix"), false)
 }
+
+///|
+test "a drawing reports its size and the size of the text inside it" {
+  // the record the browser writes: `D` is the drawing, `F` is a label's
+  // computed font size, so a figure page can be sized from the drawing rather
+  // than from an assumption about Mermaid's default
+  let dom = "<html><body><pre id=\"m\">BEGIN\nD\t0\t1200\t800\nF\t0\t16\nD\t1\t300\t200\nF\t1\t20\nEND\n</pre></body></html>"
+  let m = @printpdf.parse_measurement(dom)
+  @test.assert_eq(m.dims.length(), 2)
+  @test.assert_eq(m.dims[0].0, 1200.0)
+  @test.assert_eq(m.dims[1].1, 200.0)
+  @test.assert_eq(m.fonts.length(), 2)
+  @test.assert_eq(m.fonts[0], 16.0)
+  @test.assert_eq(m.fonts[1], 20.0)
+}
+
+///|
+test "a measurement written before the font record still parses" {
+  // an older recording has no `F`: the sizes still arrive, and the page
+  // sizing falls back to the default Mermaid label size
+  let old = "<pre id=\"m\">BEGIN\nD\t0\t1200\t800\nEND\n</pre>"
+  let m = @printpdf.parse_measurement(old)
+  @test.assert_eq(m.dims.length(), 1)
+  @test.assert_eq(m.dims[0].0, 1200.0)
+  @test.assert_eq(m.fonts.length(), 0)
+}
+
+///|
+test "a measurement can be built without fonts" {
+  let m = @printpdf.measurement_of([(10.0, 20.0)], [])
+  @test.assert_eq(m.fonts.length(), 0)
+  @test.assert_eq(m.dims.length(), 1)
+}

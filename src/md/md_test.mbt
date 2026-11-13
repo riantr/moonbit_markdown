@@ -706,3 +706,174 @@ test "the one-page switch changes the wrapper and nothing else" {
   @test.assert_eq(plain.contains("<main>\n<p>x</p></main>"), true)
   @test.assert_eq(one.contains("<p>x</p></main>"), true)
 }
+
+///|
+/// One decimal as an integer: the sheets are pinned to 0.1 mm, which is the
+/// precision the stylesheet writes anyway.
+fn tenths(v : Double) -> Int {
+  (v * 10.0 + 0.5).to_int()
+}
+
+///|
+test "a sheet is sized so the labels inside the drawing print at the target" {
+  // 2,000 x 3,000 px of drawing with 16 px labels. The scale that lands those
+  // labels on 6 pt is 6 / (16 * 0.75) = 0.5, which needs 264.6 x 396.9 mm of
+  // drawing, plus the 8 mm margins.
+  let pages = @md.figure_pages(
+    [(2000.0, 3000.0)],
+    [16.0],
+    6.0,
+    (420.0, 594.0),
+    (148.0, 210.0),
+    8.0,
+  )
+  @test.assert_eq(pages.length(), 1)
+  let p = pages[0]
+  @test.assert_eq(tenths(p.width_mm), 2846)
+  @test.assert_eq(tenths(p.height_mm), 4169)
+  @test.assert_eq(tenths(p.label_pt), 60)
+  @test.assert_eq(p.capped, false)
+}
+
+///|
+test "a drawing past the cap gets the cap, and is reported as capped" {
+  // the widest CFG LunaFlow draws: 5,858 x 7,276 px. 6 pt wants 791 x 979 mm,
+  // which is past A2, so A2 is what it gets and the labels land under the
+  // target - the one outcome this mode reports instead of hiding.
+  let pages = @md.figure_pages(
+    [(5858.0, 7276.0)],
+    [16.0],
+    6.0,
+    (420.0, 594.0),
+    (148.0, 210.0),
+    8.0,
+  )
+  let p = pages[0]
+  @test.assert_eq(tenths(p.width_mm), 4200)
+  @test.assert_eq(tenths(p.height_mm), 5940)
+  @test.assert_eq(p.capped, true)
+  // 404 mm of sheet across 1,550 mm of drawing: 16 px * 0.75 * 0.2606 = 3.13
+  @test.assert_eq(tenths(p.label_pt), 31)
+}
+
+///|
+test "a small drawing gets the smallest sheet, not a smaller one" {
+  let pages = @md.figure_pages(
+    [(400.0, 300.0)],
+    [16.0],
+    6.0,
+    (420.0, 594.0),
+    (148.0, 210.0),
+    8.0,
+  )
+  let p = pages[0]
+  // A5 is the floor: a page that is not page-sized reads as a mistake
+  @test.assert_eq(tenths(p.width_mm), 1480)
+  @test.assert_eq(tenths(p.height_mm), 2100)
+  // the drawing is smaller than the sheet and the browser never enlarges one,
+  // so it prints at its own 12 pt rather than the 6 pt asked for - above the
+  // target, and reported as what prints, not as what was wanted
+  @test.assert_eq(tenths(p.label_pt), 120)
+  @test.assert_eq(p.capped, false)
+}
+
+///|
+test "a diagram that did not render gets no sheet of its own" {
+  // its measured size is (0, 0): it keeps the default sheet and shows its error
+  // there, while the figures after it keep the index they were numbered with
+  let pages = @md.figure_pages(
+    [(0.0, 0.0), (2000.0, 3000.0)],
+    [0.0, 16.0],
+    6.0,
+    (420.0, 594.0),
+    (148.0, 210.0),
+    8.0,
+  )
+  @test.assert_eq(pages.length(), 1)
+  @test.assert_eq(pages[0].index, 1)
+}
+
+///|
+test "the sheets become css named pages, one per figure" {
+  let pages = @md.figure_pages(
+    [(2000.0, 3000.0)],
+    [16.0],
+    6.0,
+    (420.0, 594.0),
+    (148.0, 210.0),
+    8.0,
+  )
+  let css = @md.figure_page_css(pages, 8.0)
+  @test.assert_eq(css.contains("@media print{"), true)
+  @test.assert_eq(
+    css.contains("@page fig0{size:284.6mm 416.9mm;margin:8.0mm}"),
+    true,
+  )
+  @test.assert_eq(css.contains("[data-fig=\"0\"]{page:fig0;height:396.9mm}"), true)
+  // the drawing is bounded on both axes so it lands as large as the box allows
+  // without ever outgrowing it: a figure that overruns its sheet is a figure
+  // Chrome stops giving that sheet to
+  @test.assert_eq(
+    css.contains(
+      "[data-fig=\"0\"] svg{width:auto!important;height:auto!important;max-width:100%!important;max-height:100%!important}",
+    ),
+    true,
+  )
+  // no figures, no rules: a document without a diagram is untouched
+  @test.assert_eq(@md.figure_page_css([], 8.0), "")
+}
+
+///|
+test "a paper size is named or given, and a typo is refused" {
+  @test.assert_eq(@md.paper_of("A4"), Some((210.0, 297.0)))
+  @test.assert_eq(@md.paper_of("A2"), Some((420.0, 594.0)))
+  @test.assert_eq(@md.paper_of("300x400mm"), Some((300.0, 400.0)))
+  @test.assert_eq(@md.paper_of("300x400"), Some((300.0, 400.0)))
+  @test.assert_eq(@md.paper_of("297.5x420.25mm"), Some((297.5, 420.25)))
+  // a name that is not a paper, a number without a second side, and a size
+  // with a suffix that is not "mm" are all refused rather than guessed
+  match @md.paper_of("A9") {
+    None => ()
+    Some(_) => @test.fail("A9 is not a paper size")
+  }
+  match @md.paper_of("300x") {
+    None => ()
+    Some(_) => @test.fail("300x has no height")
+  }
+  match @md.paper_of("300x400cm") {
+    None => ()
+    Some(_) => @test.fail("cm is not a size this accepts")
+  }
+}
+
+///|
+test "every drawing is numbered in document order, only in this mode" {
+  let body = "<div class=\"mermaid\">\nA\n</div>\n<p>x</p>\n<div class=\"mermaid\">\nB\n</div>\n"
+  let page = @md.render_page("T", body, "", figures_one_page=true)
+  @test.assert_eq(
+    page.contains("<div class=\"mermaid\" data-fig=\"0\">\nA"),
+    true,
+  )
+  @test.assert_eq(
+    page.contains("<div class=\"mermaid\" data-fig=\"1\">\nB"),
+    true,
+  )
+  // the default page keeps its bytes: nothing is numbered there
+  @test.assert_eq(@md.render_page("T", body, "").contains("data-fig"), false)
+}
+
+///|
+test "the diagrams are collected in the order the renderer writes them" {
+  // the measurement reports one size per source and the body numbers the
+  // drawings in the same order, so the two walks have to agree - and a diagram
+  // nested in a quote or a list item must keep its place, not be dropped
+  let src = "# t\n\n```mermaid\na\n```\n\n> ```mermaid\n> b\n> ```\n\n- ```mermaid\n  c\n  ```\n"
+  let sources = @md.mermaid_sources(@md.parse_document(src))
+  @test.assert_eq(sources.length(), 3)
+  @test.assert_eq(sources[0], "a\n")
+  @test.assert_eq(sources[1], "b\n")
+  @test.assert_eq(sources[2], "c\n")
+  // and a document without a diagram reports none, so the page size is left
+  // alone rather than computed from nothing
+  @test.assert_eq(@md.mermaid_sources(@md.parse_document("# t\n")).length(), 0)
+}

@@ -6,13 +6,25 @@ pub const DEFAULT_CSS : String = "@page{size:A4 portrait;margin:12mm}html{box-si
 
 pub const FIGURE_CSS : String = "@media print{main.figures-one-page .mermaid{break-before:page;break-after:page;page-break-before:always;page-break-after:always;height:265mm;display:flex;align-items:center;justify-content:center;margin:0;overflow:hidden}main.figures-one-page .mermaid svg{max-width:100%!important;max-height:265mm!important;width:auto!important;height:auto!important}}"
 
+pub const FIGURE_MARGIN_MM : Double = 8.0
+
+pub const FIGURE_SLACK_MM : Double = 4.0
+
 pub const MERMAID_BOOTSTRAP : String = "(function(){if(!window.mermaid){return}window.mermaid.initialize({startOnLoad:false,maxTextSize:20000000,maxEdges:500000});var nodes=[].slice.call(document.querySelectorAll('div.mermaid'));var seq=0;function renderOne(el){var src=el.textContent;var id='mmd_'+(++seq);return window.mermaid.render(id,src).then(function(r){var holder=document.createElement('div');holder.innerHTML=r.svg;var svg=holder.querySelector('svg');el.innerHTML='';el.appendChild(svg)}).catch(function(e){el.textContent='diagram failed to render: '+e})}nodes.reduce(function(p,el){return p.then(function(){return renderOne(el)})},Promise.resolve())})();"
+
+pub const MM_PER_PX : Double = 0.2645833333333333
+
+pub const PT_PER_PX : Double = 0.75
 
 pub fn chars(String) -> Array[Char]
 
 pub fn collect_toc(Array[Block]) -> Array[TocEntry]
 
 pub fn escape_html(String) -> String
+
+pub fn figure_page_css(Array[FigurePage], Double) -> String
+
+pub fn figure_pages(Array[(Double, Double)], Array[Double], Double, (Double, Double), (Double, Double), Double) -> Array[FigurePage]
 
 pub fn first_word(String) -> String
 
@@ -24,7 +36,13 @@ pub fn leading_spaces(String) -> Int32
 
 pub fn ltrim(Array[Char]) -> String
 
+pub fn mermaid_sources(Array[Block]) -> Array[String]
+
 pub fn needs_runtime(Array[Block]) -> Bool
+
+pub fn paper_of(String) -> (Double, Double)?
+
+pub fn paper_size(String) -> (Double, Double)?
 
 pub fn parse_document(String) -> Array[Block]
 
@@ -38,7 +56,7 @@ pub fn render_blocks(Array[Block]) -> String
 
 pub fn render_inline(Array[Inline]) -> String
 
-pub fn render_page(String, String, String, figures_one_page? : Bool) -> String
+pub fn render_page(String, String, String, figures_one_page? : Bool, extra_print_css? : String) -> String
 
 pub fn slice(String, Int32, Int32) -> String
 
@@ -63,6 +81,15 @@ pub enum Block {
   List(Bool, Bool, Array[ListItem])
   Rule
   Table(Array[TableCell], Array[String], Array[TableRow])
+}
+
+pub struct FigurePage {
+  index : Int32
+  width_mm : Double
+  height_mm : Double
+  scale : Double
+  label_pt : Double
+  capped : Bool
 }
 
 pub enum Inline {

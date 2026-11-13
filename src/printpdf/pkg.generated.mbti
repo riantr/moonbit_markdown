@@ -48,7 +48,7 @@ pub fn group(Int32) -> String
 
 pub fn measure_page(Array[String], String) -> String
 
-pub fn measurement_of(Array[(Double, Double)], Array[NodeBox]) -> Measurement
+pub fn measurement_of(Array[(Double, Double)], Array[NodeBox], fonts? : Array[Double]) -> Measurement
 
 pub fn node_box(String, Double, Double, Double, Double) -> NodeBox
 
@@ -87,6 +87,7 @@ pub fn trimmed(Array[Char]) -> String
 // Types and methods
 pub struct Measurement {
   dims : Array[(Double, Double)]
+  fonts : Array[Double]
   nodes : Array[NodeBox]
   errors : Array[String]
 }

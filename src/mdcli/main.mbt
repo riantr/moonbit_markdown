@@ -18,6 +18,18 @@
 ///   --figures-one-page    one diagram, one page: the drawing gets a page to
 ///                          itself and is scaled down until it fits, instead
 ///                          of being broken across two sheets (off by default)
+///   --figure-page-fit <pt> one diagram, one page, sized to the diagram: each
+///                          figure page is a sheet big enough for the labels
+///                          inside the drawing to print at <pt> (implies
+///                          --figures-one-page)
+///   --figure-page-max <p>  the largest sheet --figure-page-fit may ask for:
+///                          A6..A0, or <w>x<h>mm (default: A2)
+///
+/// The figure-page flags exist because a PDF is read, while the Markdown it
+/// came from is parsed: one paper size for the whole document forces a choice
+/// between wasting the small drawings and shrinking the large ones past
+/// reading. Splitting the difference per page is what CSS named pages are for,
+/// and the size a drawing needs is measured from the drawing itself.
 ///
 /// NOTE ON EXIT CODES: MoonBit exposes no process-exit entry point in the
 /// packages available here, so a failure prints an ERROR line on stderr and
@@ -29,6 +41,15 @@ const DEFAULT_MERMAID_JS : String = "C:\\Users\\hp\\AppData\\Roaming\\npm\\node_
 
 ///|
 const DEFAULT_CHROME : String = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+
+///|
+/// The largest sheet the figure-page mode may ask for.
+const DEFAULT_FIGURE_PAGE_MAX : String = "A2"
+
+///|
+/// The smallest sheet the figure-page mode may ask for: below this the page
+/// reads as a mistake rather than as a page.
+const FIGURE_PAGE_MIN : String = "A5"
 
 ///|
 fn usage() -> Unit {
@@ -61,6 +82,16 @@ fn usage() -> Unit {
   println(
     "  --figures-one-page     give each diagram a page of its own, scaled to fit",
   )
+  println(
+    "  --figure-page-fit <pt> give each diagram a sheet sized to it, so its",
+  )
+  println(
+    "                         labels print at <pt> (default when used: 6)",
+  )
+  println(
+    "  --figure-page-max <p>  the largest sheet to ask for: A6..A0 or WxHmm",
+  )
+  println("                         (default: A2)")
 }
 
 ///|
@@ -173,12 +204,22 @@ async fn mmd_to_html(
 /// The mermaid runtime is 2.6 MB, so it is only inlined when the document
 /// actually holds a diagram: a page without one stays a page without it.
 ///
-async fn md_to_html(
-  in_path : String,
-  out_path : String,
-  mermaid_js_path : String,
-  figures_one_page : Bool,
-) -> Unit {
+///|
+/// A document, ready to be written as a page: its blocks (which the figure
+/// measurement walks), its rendered body, and the runtime that draws it.
+priv struct RenderedDoc {
+  blocks : Array[@md.Block]
+  body : String
+  mermaid_js : String
+}
+
+///|
+/// Parse and render the document, or report why it cannot be drawn.
+///
+/// `md2html` and `md2pdf` both need exactly this, and a document whose diagram
+/// cannot be drawn has to fail the same way through either, so the first half
+/// of both lives here.
+async fn render_document(in_path : String, mermaid_js_path : String) -> RenderedDoc? {
   match read_text(in_path) {
     Some(src) => {
       let blocks = @md.parse_document(src)
@@ -192,19 +233,153 @@ async fn md_to_html(
             println(
               "ERROR\tcannot inline the mermaid runtime; the diagram cannot be drawn, so no page was written",
             )
-            return
+            return None
           }
         }
       } else {
         ""
       }
+      Some({ blocks, body, mermaid_js })
+    }
+    None => None
+  }
+}
+
+///|
+async fn md_to_html(
+  in_path : String,
+  out_path : String,
+  mermaid_js_path : String,
+  figures_one_page : Bool,
+) -> Unit {
+  match render_document(in_path, mermaid_js_path) {
+    Some(doc) => {
       let page = @md.render_page(
         file_title(in_path),
-        body,
-        mermaid_js,
+        doc.body,
+        doc.mermaid_js,
         figures_one_page~,
       )
       write_text(out_path, page)
+    }
+    None => ()
+  }
+}
+
+///|
+/// Lay out one sheet per drawing, and return the stylesheet fragment that
+/// hands them out.
+///
+/// The measurement is a round trip through the browser because a drawing's
+/// size is only known once the drawing exists; the arithmetic that turns those
+/// sizes into sheets is `@md.figure_pages`. The result is reported per figure
+/// on purpose: when `--figure-page-max` bites, the labels land below the
+/// target, and a silent degradation is the one thing this mode must not do.
+async fn figure_page_sheets(
+  doc : RenderedDoc,
+  chrome : String,
+  target_pt : Double,
+  max_spec : String,
+) -> String? {
+  let sources = @md.mermaid_sources(doc.blocks)
+  if sources.is_empty() {
+    println("NOTE\tthis document holds no diagram, so the page size is unchanged")
+    return Some("")
+  }
+  let max_mm = match @md.paper_of(max_spec) {
+    Some(p) => p
+    None => {
+      println("ERROR\tunknown paper size for --figure-page-max: " + max_spec)
+      return None
+    }
+  }
+  let min_mm = match @md.paper_of(FIGURE_PAGE_MIN) {
+    Some(p) => p
+    None => (148.0, 210.0)
+  }
+  let measure_path = "measure.html"
+  @fs.write_file(measure_path, @printpdf.measure_page(sources, doc.mermaid_js))
+  let dom = match dump_dom(chrome, measure_path) {
+    Some(x) => x
+    None => {
+      println("ERROR\tthe browser did not return the measurement")
+      @fs.remove(measure_path)
+      return None
+    }
+  }
+  @fs.remove(measure_path)
+  let m = @printpdf.parse_measurement(dom)
+  for e in m.errors {
+    println("ERROR\ta diagram did not render: " + e)
+  }
+  let pages = @md.figure_pages(
+    m.dims,
+    m.fonts,
+    target_pt,
+    max_mm,
+    min_mm,
+    @md.FIGURE_MARGIN_MM,
+  )
+  for p in pages {
+    let mut line = "figure " + p.index.to_string() + "\t" +
+      @printpdf.fmt1(p.width_mm) +
+      " x " +
+      @printpdf.fmt1(p.height_mm) +
+      " mm\tlabels " +
+      @printpdf.fmt1(p.label_pt) +
+      " pt"
+    if p.capped {
+      line = line + "\tcapped by --figure-page-max"
+    }
+    println(line)
+  }
+  Some(@md.figure_page_css(pages, @md.FIGURE_MARGIN_MM))
+}
+
+///|
+/// Render a Markdown document to PDF, optionally with a sheet per figure.
+///
+/// With a figure target the document is laid out twice: once so the browser
+/// can measure the drawings, once with the sheets those measurements imply.
+/// Nothing in the second pass is guessed - the first pass is what makes the
+/// second possible.
+async fn md_to_pdf(
+  in_path : String,
+  out_path : String,
+  mermaid_js_path : String,
+  chrome : String,
+  header_footer : Bool,
+  figures_one_page : Bool,
+  figure_fit_pt : Double?,
+  figure_max : String,
+) -> Unit {
+  match render_document(in_path, mermaid_js_path) {
+    Some(doc) => {
+      let mut extra_css = ""
+      let mut one_page = figures_one_page
+      match figure_fit_pt {
+        None => ()
+        Some(pt) =>
+          match figure_page_sheets(doc, chrome, pt, figure_max) {
+            Some(css) => {
+              // a sheet per figure is a page per figure, so this mode implies
+              // the one-page layout rather than stacking two layouts
+              one_page = true
+              extra_css = css
+            }
+            None => return
+          }
+      }
+      let page = @md.render_page(
+        file_title(in_path),
+        doc.body,
+        doc.mermaid_js,
+        figures_one_page=one_page,
+        extra_print_css=extra_css,
+      )
+      let tmp = sidecar_path(out_path, ".html")
+      write_text(tmp, page)
+      print_to_pdf(tmp, out_path, chrome, header_footer)
     }
     None => ()
   }
@@ -424,6 +599,8 @@ pub async fn run(args : Array[String]) -> Unit {
   let mut chrome = DEFAULT_CHROME
   let mut header_footer = false
   let mut figures_one_page = false
+  let mut figure_fit_pt : Double? = None
+  let mut figure_max = DEFAULT_FIGURE_PAGE_MAX
   while i < args.length() {
     let a = args[i]
     if a == "--mermaid-js" && i + 1 < args.length() {
@@ -436,6 +613,19 @@ pub async fn run(args : Array[String]) -> Unit {
       // one diagram, one page: the drawing is scaled down until it fits,
       // instead of being broken across two sheets
       figures_one_page = true
+    } else if a == "--figure-page-fit" && i + 1 < args.length() {
+      // one diagram, one sheet, and the sheet is sized to the drawing: this
+      // is the mode where the PDF stops pretending every page is A4
+      i += 1
+      let pt = @printpdf.parse_num(args[i])
+      if pt <= 0.0 {
+        println("ERROR\t--figure-page-fit needs a size in points, above zero")
+      } else {
+        figure_fit_pt = Some(pt)
+      }
+    } else if a == "--figure-page-max" && i + 1 < args.length() {
+      i += 1
+      figure_max = args[i]
     } else if a == "--header-footer" {
       // the browser's own header and footer are off by default: the document
       // carries its own margins, and the browser's date-and-URL banner would
@@ -475,9 +665,16 @@ pub async fn run(args : Array[String]) -> Unit {
         usage()
         return
       }
-      let tmp = sidecar_path(positional[1], ".html")
-      md_to_html(positional[0], tmp, mermaid_js_path, figures_one_page)
-      print_to_pdf(tmp, positional[1], chrome, header_footer)
+      md_to_pdf(
+        positional[0],
+        positional[1],
+        mermaid_js_path,
+        chrome,
+        header_footer,
+        figures_one_page,
+        figure_fit_pt,
+        figure_max,
+      )
     }
     "mmd2measure" => {
       if positional.length() < 1 {

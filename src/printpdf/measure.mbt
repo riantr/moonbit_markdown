@@ -30,6 +30,12 @@
 pub struct Measurement {
   /// the natural size of each measured diagram, in diagram pixels
   dims : Array[(Double, Double)]
+  /// the label size of each measured diagram, in CSS pixels, or 0 when the
+  /// browser reported none. A figure page is sized from this: the sheet a
+  /// drawing needs to print its labels at a wanted size is the drawing's size
+  /// scaled by `wanted / (font * 0.75)`, so the font has to be measured rather
+  /// than assumed - a theme or a diagram type may not use the default.
+  fonts : Array[Double]
   /// the geometry of every node of the first measured diagram
   nodes : Array[NodeBox]
   /// the diagrams that could not be rendered
@@ -42,8 +48,9 @@ pub struct Measurement {
 pub fn measurement_of(
   dims : Array[(Double, Double)],
   nodes : Array[NodeBox],
+  fonts? : Array[Double] = [],
 ) -> Measurement {
-  { dims, nodes, errors: [], }
+  { dims, fonts, nodes, errors: [], }
 }
 
 ///|
@@ -102,6 +109,7 @@ fn pre_text(dom : String) -> String {
 ///
 /// The records are:
 ///   `D <index> <width> <height>`   the natural size of a diagram
+///   `F <index> <font px>`          the label size inside that diagram
 ///   `N <index> <id> <x> <y> <w> <h>`  the geometry of one node
 ///   `E <index> <message>`          a diagram that failed to render
 ///
@@ -109,8 +117,13 @@ fn pre_text(dom : String) -> String {
 /// coordinate space - the focused drawing is 943 px wide and the whole one
 /// is 16,302 px - so the geometry of one cannot be read against the other.
 ///
+/// A measurement written before the `F` record existed still parses: a diagram
+/// with no font reported reads as 0, and the page sizing falls back to the
+/// Mermaid default it was written with.
+///
 pub fn parse_measurement(dom : String) -> Measurement {
   let dims : Array[(Double, Double)] = []
+  let fonts : Array[Double] = []
   let nodes : Array[NodeBox] = []
   let errors : Array[String] = []
   for line in @text.split_lines(pre_text(dom)) {
@@ -125,6 +138,14 @@ pub fn parse_measurement(dom : String) -> Measurement {
         dims.push((0.0, 0.0))
       }
       dims[index] = (parse_num(f[2]), parse_num(f[3]))
+      continue
+    }
+    if tag == "F" && f.length() >= 3 {
+      let index = parse_num(f[1]).to_int()
+      while fonts.length() <= index {
+        fonts.push(0.0)
+      }
+      fonts[index] = parse_num(f[2])
       continue
     }
     if tag == "N" && f.length() >= 7 {
@@ -144,7 +165,7 @@ pub fn parse_measurement(dom : String) -> Measurement {
       errors.push(f[2])
     }
   }
-  { dims, nodes, errors, }
+  { dims, fonts, nodes, errors, }
 }
 
 ///|
@@ -165,8 +186,13 @@ fn measure_script() -> String {
     "      d.style.cssText = 'position:absolute;left:0;top:0;';", "      d.innerHTML = svg;",
     "      document.body.appendChild(d);", "      var el = d.querySelector('svg');",
     "      el.setAttribute('width', String(vb[2]));", "      el.setAttribute('height', String(vb[3]));",
-    "      el.removeAttribute('style');", "      var nodes = [];", "      var list = el.querySelectorAll('g.node');",
-    "      for (var k = 0; k < list.length; k++) {", "        var e = list[k];",
+    // the label size is measured, not assumed: a figure page is sized from it,
+    // and a theme or a diagram type may not use Mermaid's 16 px default
+    "      var t = el.querySelector('text');", "      var fs = 0;",
+    "      if (t) { fs = parseFloat(window.getComputedStyle(t).fontSize) || 0; }",
+    "      out.push('F' + TAB + i + TAB + fs);",
+    "      el.removeAttribute('style');", "      var nodes = [];",
+    "      var list = el.querySelectorAll('g.node');",    "      for (var k = 0; k < list.length; k++) {", "        var e = list[k];",
     "        var b = null;", "        try { b = e.getBBox(); } catch (err) { continue; }",
     "        if (!b) { continue; }", "        var mtx = e.getCTM();", "        if (!mtx) { continue; }",
     "        var p0 = new DOMPoint(b.x, b.y).matrixTransform(mtx);", "        var p1 = new DOMPoint(b.x + b.width, b.y + b.height).matrixTransform(mtx);",

@@ -316,6 +316,36 @@ pub fn needs_runtime(blocks : Array[Block]) -> Bool {
 }
 
 ///|
+/// Every diagram in the document, in the order the renderer writes them.
+///
+/// The order is the contract: the measurement reports one size per source, and
+/// the body numbers the drawings with the same index, so a diagram's size can
+/// only be paired with the diagram it belongs to if both walks agree. So this
+/// walk mirrors `render_blocks` - quotes and list items are descended into, in
+/// document order - rather than looking only at the top level.
+pub fn mermaid_sources(blocks : Array[Block]) -> Array[String] {
+  let out : Array[String] = []
+  collect_mermaid(blocks, out)
+  out
+}
+
+///|
+fn collect_mermaid(blocks : Array[Block], out : Array[String]) -> Unit {
+  for b in blocks {
+    match b {
+      Mermaid(src) => out.push(src)
+      Quote(inner) => collect_mermaid(inner, out)
+      List(_, _, items) => {
+        for it in items {
+          collect_mermaid(it.blocks, out)
+        }
+      }
+      _ => ()
+    }
+  }
+}
+
+///|
 /// The stylesheet that puts each diagram on a page of its own.
 ///
 /// A diagram that is wider than the page cannot be printed at a readable size
@@ -336,6 +366,41 @@ pub const FIGURE_CSS : String = "@media print{main.figures-one-page .mermaid{bre
 pub const DEFAULT_CSS : String = "@page{size:A4 portrait;margin:12mm}html{box-sizing:border-box}*{box-sizing:inherit}body{margin:0;background:#fff;color:#1c1c1c;font:16px/1.65 -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}main{max-width:52em;margin:0 auto;padding:48px 24px 96px}h1,h2,h3,h4,h5,h6{line-height:1.25;margin:1.6em 0 .6em}h1{font-size:2em}h2{font-size:1.5em}h3{font-size:1.2em}p{margin:0 0 1em}a{color:#0b5cad}code{background:#f4f4f6;border-radius:4px;padding:.15em .35em;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}pre{background:#f7f7f9;border:1px solid #e3e3e8;border-radius:8px;padding:14px 16px;overflow:auto}pre code{background:none;padding:0;font-size:.86em}blockquote{margin:1.2em 0;padding:.2em 1em;border-left:4px solid #d8d8e0;color:#555}hr{border:0;border-top:1px solid #e3e3e8;margin:2em 0}table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.94em}th,td{border-bottom:1px solid #e3e3e8;padding:6px 10px;text-align:left}th{background:#f7f7f9}ul,ol{padding-left:1.4em}.task-list-item{list-style:none}.mermaid{margin:1.5em 0;text-align:center}.mermaid svg{max-width:100%;height:auto}@media print{body{font-size:11pt}main{max-width:none;padding:0}a{color:inherit;text-decoration:none}pre,blockquote,table{break-inside:avoid}}"
 
 ///|
+/// Give every drawing in the rendered body its own index.
+///
+/// The per-figure sheet rules are selected by that index, so the index has to
+/// be the drawing's position in the document - and the body is exactly where
+/// the position lives. Counting here rather than inside the renderer keeps the
+/// renderer's recursion (quotes, list items) out of it: whatever the renderer
+/// emitted, the order of these blocks is the order of the figures.
+///
+/// A fenced code block that merely shows the markup is escaped by the renderer,
+/// so it cannot match the needle.
+fn number_figures(body : String) -> String {
+  let needle = "<div class=\"mermaid\">"
+  let sb = StringBuilder()
+  let mut rest = body
+  let mut n = 0
+  while true {
+    match rest.find(needle) {
+      None => {
+        sb.write_string(rest)
+        break
+      }
+      Some(i) => {
+        sb.write_string(rest[0:i].to_owned())
+        sb.write_string("<div class=\"mermaid\" data-fig=\"")
+        sb.write_string(n.to_string())
+        sb.write_string("\">")
+        rest = rest[i + needle.length():rest.length()].to_owned()
+        n += 1
+      }
+    }
+  }
+  sb.to_string()
+}
+
+///|
 /// Wrap a rendered fragment in a complete, self-contained HTML5 document.
 
 ///|
@@ -348,6 +413,7 @@ pub fn render_page(
   body : String,
   mermaid_js : String,
   figures_one_page? : Bool = false,
+  extra_print_css? : String = "",
 ) -> String {
   let sb = StringBuilder()
   sb.write_string(
@@ -360,9 +426,19 @@ pub fn render_page(
   sb.write_string(escape_html(title))
   sb.write_string("</title>\n<style>\n")
   sb.write_string(DEFAULT_CSS)
-  if figures_one_page {
+  if figures_one_page && extra_print_css.is_empty() {
+    // the uniform-A4 version of the figure block. A per-figure stylesheet
+    // carries its own copy instead: the two cannot be stacked, because the
+    // fixed 265 mm height here is exactly what stops the browser from using a
+    // sheet that was sized for the drawing.
     sb.write_string("\n")
     sb.write_string(FIGURE_CSS)
+  }
+  if !extra_print_css.is_empty() {
+    // the per-figure sheets: one `@page` rule per drawing, computed from what
+    // the browser measured before this page was written
+    sb.write_string("\n")
+    sb.write_string(extra_print_css)
   }
   sb.write_string("\n</style>\n</head>\n<body>\n")
   if figures_one_page {
@@ -372,7 +448,14 @@ pub fn render_page(
   } else {
     sb.write_string("<main>\n")
   }
-  sb.write_string(body)
+  if figures_one_page {
+    // every drawing needs an index of its own, because the per-figure sheet
+    // rules are selected by that index. Only this mode numbers them, so the
+    // default page keeps its bytes.
+    sb.write_string(number_figures(body))
+  } else {
+    sb.write_string(body)
+  }
   sb.write_string("</main>\n")
   if !mermaid_js.is_empty() {
     sb.write_string("<script>")

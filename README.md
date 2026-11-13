@@ -101,8 +101,9 @@ moon run . mmd2measure <in.mmd>               # the measured geometry, for check
 Options: `--mermaid-js <path>` (the mermaid runtime to inline),
 `--chrome <path>` (the browser to drive), `--header-footer` (let the browser
 print its own header and footer; off by default, because the document carries
-its own margins), `--figures-one-page` (give every diagram a page of its own;
-see below).
+its own margins), `--figures-one-page` (give every diagram a page of its own),
+`--figure-page-fit <pt>` and `--figure-page-max <paper>` (give every diagram a
+sheet sized to it; see below).
 
 Both paths have a default, and the defaults are the ones on the machine this
 was written on — Chrome under `C:\Program Files`, the runtime inside the
@@ -137,6 +138,93 @@ so on a portrait sheet it becomes a wide band and its labels shrink with it:
 the 221 file scan prints its node labels at 0.48 pt. The page shows the shape
 of the whole scan and does not pretend to be readable at that size. When the
 text has to be legible, the sliced default is the layout that is meant for it.
+
+### Sizing each figure page to its figure
+
+A4 is a fair sheet for prose and a poor one for a drawing: one size for
+everything either wastes the small figures or shrinks the large ones past
+reading. `--figure-page-fit <pt>` gives each diagram a sheet of its own, sized
+so that the labels inside the drawing print at `<pt>` points, and
+`--figure-page-max` says how far that may go (default `A2`; `A6` to `A0`, or
+`<w>x<h>mm` for a size no paper has).
+
+The PDF format allows it — a page's size is its own MediaBox — and so does this
+pipeline, because the paper comes from the page's `@page` rules and CSS named
+pages give one rule per figure. No printing the document twice and stitching
+the results together.
+
+The size is derived from the drawing rather than from a table of papers. Before
+printing, the document's diagrams are rendered once and measured (the same
+round trip `mmd2measure` uses); each measured size, with the label size the
+browser reports for it, gives the scale that lands those labels on the target.
+Text pages keep the A4 they had. Measured on one report — LunaFlow's analysis
+of this module, eight diagrams:
+
+```
+figure 0   166.2 x 210.0 mm   labels 6.0 pt
+figure 2   342.9 x 594.0 mm   labels 3.6 pt   capped by --figure-page-max
+figure 3   311.7 x 594.0 mm   labels 4.6 pt   capped by --figure-page-max
+figure 4   344.6 x 594.0 mm   labels 5.8 pt   capped by --figure-page-max
+figure 6   289.7 x 576.2 mm   labels 6.0 pt
+figure 7   148.0 x 371.0 mm   labels 6.0 pt
+```
+
+Those six sheets came out of 70 pages; the other 64 stayed A4.
+
+What the tool prints per figure is what the sheet forces, not what was asked
+for, and on a page that holds nothing but the drawing the two agree exactly.
+Measured on the report above, with the drawings alone in a document, each
+figure printed at the size the layout computed:
+
+```
+figure 0   166.1 x 209.9 mm   6.17 pt
+figure 2   342.9 x 594.1 mm   3.56 pt
+figure 3   311.8 x 594.1 mm   4.55 pt
+figure 4   344.7 x 576.1 mm   5.82 pt
+figure 6   289.6 x 576.1 mm   6.00 pt
+figure 7   148.2 x 371.1 mm   6.00 pt
+```
+
+In the report as it is - drawings among the text - the same figures print
+smaller: 6.17, 3.11, 3.97, 5.08, 5.24, 5.24. The cause is in the browser, and
+it is worth stating because it is not a property of the drawing.
+
+A named page runs from the element that names it until another element names a
+different one, so the text that follows a drawing lands on the drawing's
+sheet. A sheet whose content is taller than its printable area is scaled down
+to fit - and the drawing goes down with it. Each figure sheet here is drawn to
+the last millimetre of its printable area, so whatever text follows it pushes
+it over. The shortfall is not one number but one per figure: against the size
+asked for, the six sheets give 1.000, 0.863, 0.863, 0.876, 0.873 and 0.873.
+The first figure is the exception and the proof - the drawing after it is one
+that failed to render, so almost no text follows it, its sheet does not
+overflow, and it prints at full size.
+
+Nothing about the drawing is at fault, and no amount of re-measuring the
+drawing will change this: giving the drawing an explicit size, dropping the
+bounds, turning the box from a flex container into a plain block, putting the
+break on an outer block, moving the text before the drawings, giving the text
+its own named sheet, and making the sheets taller or wider were all tried, and
+all of them left the shortfall exactly where it was.
+
+So the figure page mode is exact on a sheet that holds one drawing, and short
+by 6 to 14 % on a sheet that shares it with text. Two ways out, both known:
+print the drawings on their own and put them back into the document, or give
+the sheets enough height for the text that lands on them. The second needs a
+sheet taller than A2 for the drawings in this report, which is the whole point
+of the cap.
+
+Raising the target does not lift the figures the cap binds. Three sheets in that
+report are as tall as A2 allows, so 6 pt and 7 pt give them the same 3.11, 3.97
+and 5.08 pt; a larger target only widens their sheets. Those three want a taller
+cap, or landscape, rather than a larger number.
+
+Two browser behaviours cost the most time here and are worth knowing before
+changing this code: a named page is honoured only while the figure fits inside
+it, so a box the exact size of the printable area silently falls back to A4 and
+the drawing breaks across two sheets; and the per-figure block must not be
+stacked on the uniform-A4 one, whose fixed 265 mm height is exactly what stops
+the drawing from taking the sheet it was given.
 
 `md_with_diagram.md` is a small document that exercises the Markdown side and
 the Mermaid side at once.
