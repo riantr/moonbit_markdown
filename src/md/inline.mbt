@@ -10,22 +10,25 @@
 ///|
 /// Emphasis uses a delimiter run: a run of `*` or `_` opens only if it is
 /// followed by non-space and closes only if it is preceded by non-space. The
-/// opener and the closer are matched by scanning forward for a run of the
-/// same character at least as long as the opener. That is CommonMark's rule
-/// simplified to the cases that occur in practice; the deviation is recorded
-/// in README.md.
+/// opener and the closer are matched by the delimiter stack in emphasis.mbt,
+/// which is the rule the specification gives.
 ///
 /// NOTE: MoonBit has no `if let`; optional values are always matched.
 ///
-priv struct Delim {
-  ch : Char
-  count : Int32
-  can_open : Bool
-  can_close : Bool
-}
 
 ///|
 /// Scan a delimiter run at `i`; None when the character is not a delimiter.
+///
+/// The run is judged by the flanking rules: it may open when the character
+/// after it is not whitespace, and may close when the character before it is
+/// not whitespace. An underscore is stricter than a star, because it may
+/// only open at the start of a word and only close at the end of one.
+///
+/// The whitespace and the punctuation are the Unicode ones, not the ASCII
+/// ones: the specification counts every character in the `Zs` category as
+/// whitespace, and every character in the `P` or `S` categories as
+/// punctuation. That is why `*£*bravo.` is not emphasis - `£` is a symbol,
+/// and therefore punctuation, so the run cannot close.
 ///
 fn scan_delim(cs : Chars, i : Int32) -> Delim? {
   if i >= cs.length() {
@@ -41,12 +44,12 @@ fn scan_delim(cs : Chars, i : Int32) -> Delim? {
     n += 1
     j += 1
   }
-  let before = if i == 0 { ' ' } else { cs[i - 1] }
-  let after = if j >= cs.length() { ' ' } else { cs[j] }
-  let before_space = is_space(before)
-  let after_space = is_space(after)
-  let before_punct = is_punct(before)
-  let after_punct = is_punct(after)
+  let before = if i == 0 { '\n' } else { cs[i - 1] }
+  let after = if j >= cs.length() { '\n' } else { cs[j] }
+  let before_space = is_unicode_whitespace(before)
+  let after_space = is_unicode_whitespace(after)
+  let before_punct = is_unicode_punctuation(before)
+  let after_punct = is_unicode_punctuation(after)
   // A delimiter run is left-flanking when the character after it is not
   // whitespace, and either that character is not punctuation or the one
   // before the run is whitespace or punctuation. It is right-flanking when
@@ -54,8 +57,10 @@ fn scan_delim(cs : Chars, i : Int32) -> Delim? {
   //
   // This is what lets `foo*bar*` be emphasis - the `*` sits inside a word,
   // and a star may open there - while `snake_case` stays literal.
-  let left_flanking = !after_space && (!after_punct || before_space || before_punct)
-  let right_flanking = !before_space && (!before_punct || after_space || after_punct)
+  let left_flanking = !after_space &&
+    (!after_punct || before_space || before_punct)
+  let right_flanking = !before_space &&
+    (!before_punct || after_space || after_punct)
   let can_open = if c == '_' {
     left_flanking && (!right_flanking || before_punct)
   } else {
@@ -66,49 +71,7 @@ fn scan_delim(cs : Chars, i : Int32) -> Delim? {
   } else {
     right_flanking
   }
-  Some({ ch: c, count: n, can_open, can_close, })
-}
-
-///|
-/// Find the closing run for an opener, starting the search at `from`.
-/// Returns (index of the closing run, how many of its characters to use).
-///
-fn find_closer(cs : Chars, op : Delim, from : Int32) -> (Int32, Int32)? {
-  let mut i = from
-  while i < cs.length() {
-    if cs[i] == '`' {
-      // skip over code spans so their asterisks never close an emphasis
-      let mut j = i
-      while j < cs.length() && cs[j] == '`' {
-        j += 1
-      }
-      let n = j - i
-      match find_run(cs, j, '`', n) {
-        Some(k) => i = k + n
-        None => i = j
-      }
-      continue
-    }
-    if cs[i] == '\\' {
-      i += 2
-      continue
-    }
-    if cs[i] == op.ch {
-      match scan_delim(cs, i) {
-        Some(d) => {
-          if d.can_close {
-            let use_n = if d.count >= op.count { op.count } else { d.count }
-            return Some((i, use_n))
-          }
-          i += d.count
-          continue
-        }
-        None => ()
-      }
-    }
-    i += 1
-  }
-  None
+  Some({ ch: c, orig_len: n, can_open, can_close, })
 }
 
 ///|
@@ -150,7 +113,7 @@ fn parse_inline_refs(s : String, refs : Refs) -> Array[Inline] {
 
 ///|
 fn parse_inline_chars(cs : Chars, refs : Refs) -> Array[Inline] {
-  let out : Array[Inline] = []
+  let out : Array[Piece] = []
   let text_buf = StringBuilder()
   // trailing spaces are held back: two or more of them turn the line break
   // into a hard break, and a single one is dropped before a soft break.
@@ -162,9 +125,9 @@ fn parse_inline_chars(cs : Chars, refs : Refs) -> Array[Inline] {
     if c == '\n' {
       flush_text(out, text_buf)
       if pending_spaces >= 2 {
-        out.push(HardBreak)
+        push_inline(out, HardBreak)
       } else {
-        out.push(SoftBreak)
+        push_inline(out, SoftBreak)
       }
       pending_spaces = 0
       i += 1
@@ -192,7 +155,7 @@ fn parse_inline_chars(cs : Chars, refs : Refs) -> Array[Inline] {
       }
       if n == '\n' {
         flush_text(out, text_buf)
-        out.push(HardBreak)
+        push_inline(out, HardBreak)
         i += 2
         continue
       }
@@ -214,7 +177,7 @@ fn parse_inline_chars(cs : Chars, refs : Refs) -> Array[Inline] {
       match scan_code_span(cs, i) {
         Some((code, next)) => {
           flush_text(out, text_buf)
-          out.push(Code(code))
+          push_inline(out, Code(code))
           i = next
           continue
         }
@@ -237,7 +200,7 @@ fn parse_inline_chars(cs : Chars, refs : Refs) -> Array[Inline] {
       match scan_autolink(cs, i) {
         Some((href, label, next)) => {
           flush_text(out, text_buf)
-          out.push(Link(href, "", [Text(label)]))
+          push_inline(out, Link(href, "", [Text(label)]))
           i = next
           continue
         }
@@ -246,7 +209,7 @@ fn parse_inline_chars(cs : Chars, refs : Refs) -> Array[Inline] {
       match scan_raw_html(cs, i) {
         Some((raw, next)) => {
           flush_text(out, text_buf)
-          out.push(RawHtml(raw))
+          push_inline(out, RawHtml(raw))
           i = next
           continue
         }
@@ -260,8 +223,14 @@ fn parse_inline_chars(cs : Chars, refs : Refs) -> Array[Inline] {
       match scan_link(cs, i + 1, true) {
         Some((label, src, _title, next)) => {
           flush_text(out, text_buf)
-          out.push(
-            Image(src, plain_text(parse_inline_chars(cs[label.0:label.1].to_owned(), refs))),
+          push_inline(
+            out,
+            Image(
+              src,
+              plain_text(
+                parse_inline_chars(cs[label.0:label.1].to_owned(), refs),
+              ),
+            ),
           )
           i = next
           continue
@@ -271,8 +240,14 @@ fn parse_inline_chars(cs : Chars, refs : Refs) -> Array[Inline] {
       match scan_ref_link(cs, i + 1, refs, true) {
         Some((label, src, _title, next)) => {
           flush_text(out, text_buf)
-          out.push(
-            Image(src, plain_text(parse_inline_chars(cs[label.0:label.1].to_owned(), refs))),
+          push_inline(
+            out,
+            Image(
+              src,
+              plain_text(
+                parse_inline_chars(cs[label.0:label.1].to_owned(), refs),
+              ),
+            ),
           )
           i = next
           continue
@@ -285,7 +260,8 @@ fn parse_inline_chars(cs : Chars, refs : Refs) -> Array[Inline] {
       match scan_link(cs, i, false) {
         Some((label, href, title, next)) => {
           flush_text(out, text_buf)
-          out.push(
+          push_inline(
+            out,
             Link(
               href,
               title,
@@ -300,7 +276,8 @@ fn parse_inline_chars(cs : Chars, refs : Refs) -> Array[Inline] {
       match scan_ref_link(cs, i, refs, false) {
         Some((label, href, title, next)) => {
           flush_text(out, text_buf)
-          out.push(
+          push_inline(
+            out,
             Link(
               href,
               title,
@@ -314,36 +291,18 @@ fn parse_inline_chars(cs : Chars, refs : Refs) -> Array[Inline] {
       }
     }
     // ---- emphasis
+    // The delimiter run is only collected here. Which runs pair up, and how
+    // many characters of each are used, is decided by the delimiter stack in
+    // emphasis.mbt, because the answer depends on the runs that come after
+    // this one as well as on the ones before it.
     if c == '*' || c == '_' {
       match scan_delim(cs, i) {
-        Some(d) =>
-          if d.can_open {
-            let strong = d.count >= 2
-            let opener_len = if strong { 2 } else { 1 }
-            let opener = {
-              ch: d.ch,
-              count: opener_len,
-              can_open: d.can_open,
-              can_close: d.can_close,
-            }
-            match find_closer(cs, opener, i + opener_len) {
-              Some((close_pos, close_len)) => {
-                let inner = parse_inline_chars(
-                  cs[i + opener_len:close_pos].to_owned(),
-                  refs,
-                )
-                flush_text(out, text_buf)
-                if strong {
-                  out.push(Strong(inner))
-                } else {
-                  out.push(Emphasis(inner))
-                }
-                i = close_pos + close_len
-                continue
-              }
-              None => ()
-            }
-          }
+        Some(d) => {
+          flush_text(out, text_buf)
+          out.push(Run(d))
+          i += d.orig_len
+          continue
+        }
         None => ()
       }
     }
@@ -351,9 +310,9 @@ fn parse_inline_chars(cs : Chars, refs : Refs) -> Array[Inline] {
     if c == '\n' {
       flush_text(out, text_buf)
       if pending_spaces >= 2 {
-        out.push(HardBreak)
+        push_inline(out, HardBreak)
       } else {
-        out.push(SoftBreak)
+        push_inline(out, SoftBreak)
       }
       pending_spaces = 0
       i += 1
@@ -367,7 +326,7 @@ fn parse_inline_chars(cs : Chars, refs : Refs) -> Array[Inline] {
     pending_spaces -= 1
   }
   flush_text(out, text_buf)
-  out
+  resolve_emphasis(out)
 }
 
 ///|
@@ -378,12 +337,19 @@ fn parse_inline_chars(cs : Chars, refs : Refs) -> Array[Inline] {
 /// The HTML renderer escapes `&` again on the way out, so a literal `&amp;`
 /// survives the round trip.
 ///
-fn flush_text(out : Array[Inline], sb : StringBuilder) -> Unit {
+fn flush_text(out : Array[Piece], sb : StringBuilder) -> Unit {
   let t = sb.to_string()
   if !t.is_empty() {
-    out.push(Text(t))
+    out.push(Lit(t))
   }
   sb.reset()
+}
+
+///|
+/// Collect an inline node as a piece.
+///
+fn push_inline(out : Array[Piece], node : Inline) -> Unit {
+  out.push(Node(node))
 }
 
 ///|
@@ -450,10 +416,7 @@ fn char_in(c : Char, set : String) -> Bool {
 ///
 fn scan_autolink(cs : Chars, i : Int32) -> (String, String, Int32)? {
   let mut j = i + 1
-  while j < cs.length() &&
-        cs[j] != '>' &&
-        cs[j] != '<' &&
-        !is_uri_space(cs[j]) {
+  while j < cs.length() && cs[j] != '>' && cs[j] != '<' && !is_uri_space(cs[j]) {
     j += 1
   }
   if j >= cs.length() || cs[j] != '>' {
@@ -477,11 +440,7 @@ fn scan_autolink(cs : Chars, i : Int32) -> (String, String, Int32)? {
 /// control characters are the ones a URI may not hold.
 ///
 fn is_uri_space(c : Char) -> Bool {
-  c == ' ' ||
-  c == '\t' ||
-  c == '\n' ||
-  c == '\r' ||
-  c.to_int() < 0x20
+  c == ' ' || c == '\t' || c == '\n' || c == '\r' || c.to_int() < 0x20
 }
 
 ///|
@@ -513,7 +472,11 @@ fn is_uri_autolink(body : String) -> Bool {
   }
   for i in 1..<s.length() {
     let c = s[i]
-    if !(c.is_ascii_alphabetic() || c.is_ascii_digit() || c == '+' || c == '-' || c == '.') {
+    if !(c.is_ascii_alphabetic() ||
+      c.is_ascii_digit() ||
+      c == '+' ||
+      c == '-' ||
+      c == '.') {
       return false
     }
   }
@@ -763,19 +726,18 @@ fn scan_ref_link(
       // the collapsed form `[text][]` names the label by the text itself
       let ref_label = if inner.is_empty() { text_label } else { inner }
       match lookup_ref(refs, ref_label) {
-        Some((dest, title)) => {
+        Some((dest, title)) =>
           return Some(((i + 1, label_end), dest, title, k + 1))
-        }
-        None => {
+        None =>
           // an undefined label makes the whole thing literal text
           return None
-        }
       }
     }
   }
   // the shortcut form: `[label]`
   match lookup_ref(refs, text_label) {
-    Some((dest, title)) => Some(((i + 1, label_end), dest, title, label_end + 1))
+    Some((dest, title)) =>
+      Some(((i + 1, label_end), dest, title, label_end + 1))
     None => None
   }
 }

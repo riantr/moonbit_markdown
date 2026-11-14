@@ -4,13 +4,12 @@
 // the module has one obvious executable. All the logic lives in src/mdcli;
 // this file only forwards to it.
 //
-// `async fn main` is only allowed in an executable package, which is why the
-// entry point lives here rather than in src/mdcli.
+// The entry point lives here rather than in src/mdcli because `fn main` is
+// only allowed in an executable package.
 
 pkgtype(kind: "executable")
 
 import {
   "riantr/moonbit_markdown/src/mdcli",
-  "moonbitlang/async",
   "moonbitlang/core/env",
 }

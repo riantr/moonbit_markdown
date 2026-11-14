@@ -20,7 +20,6 @@ fn is_blank(s : String) -> Bool {
 /// columns, which is what "four spaces of indentation" means. Counting
 /// characters instead would make a tab look like a single column, and an
 /// indented code block would come out as a paragraph.
-
 fn indent_of(s : String) -> Int32 {
   let cs = chars(s)
   let mut col = 0
@@ -45,7 +44,6 @@ fn indent_of(s : String) -> Int32 {
 /// Every leaf block except an indented code block may be indented by up to
 /// three columns. Four columns of indentation make the line a code block
 /// instead, which is why `    ***` is code and not a thematic break.
-
 fn is_shallow(s : String) -> Bool {
   indent_of(s) <= 3
 }
@@ -56,7 +54,6 @@ fn is_shallow(s : String) -> Bool {
 /// A tab that straddles the boundary - the part of it that falls inside the
 /// removed indentation and the part that falls outside - becomes spaces: the
 /// columns that survive are still there, only widened.
-
 fn strip_indent(s : String, n : Int32) -> String {
   let cs = chars(s)
   let sb = StringBuilder()
@@ -166,11 +163,7 @@ fn fence_of(s : String) -> (String, Char, Int32, Int32)? {
 /// tabs may follow it, so that a line of code that starts with a fence stays
 /// code.
 ///
-fn is_closing_fence(
-  s : String,
-  fence_ch : Char,
-  fence_n : Int32,
-) -> Bool {
+fn is_closing_fence(s : String, fence_ch : Char, fence_n : Int32) -> Bool {
   let cs = chars(s)
   let mut i = 0
   while i < cs.length() && cs[i] == ' ' {
@@ -433,14 +426,13 @@ fn split_table_row(s : String) -> Array[String] {
 ///
 fn block_tags() -> Array[String] {
   [
-    "address", "article", "aside", "base", "basefont", "blockquote", "body",
-    "caption", "center", "col", "colgroup", "dd", "details", "dialog", "dir",
-    "div", "dl", "dt", "fieldset", "figcaption", "figure", "footer", "form",
-    "frame", "frameset", "h1", "h2", "h3", "h4", "h5", "h6", "head", "header",
-    "hr", "html", "iframe", "legend", "li", "link", "main", "menu", "menuitem",
-    "nav", "noframes", "ol", "optgroup", "option", "p", "param", "search",
-    "section", "summary", "table", "tbody", "td", "tfoot", "th", "thead",
-    "title", "tr", "track", "ul",
+    "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption",
+    "center", "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt",
+    "fieldset", "figcaption", "figure", "footer", "form", "frame", "frameset", "h1",
+    "h2", "h3", "h4", "h5", "h6", "head", "header", "hr", "html", "iframe", "legend",
+    "li", "link", "main", "menu", "menuitem", "nav", "noframes", "ol", "optgroup",
+    "option", "p", "param", "search", "section", "summary", "table", "tbody", "td",
+    "tfoot", "th", "thead", "title", "tr", "track", "ul",
   ]
 }
 
@@ -456,7 +448,41 @@ pub fn parse_document(src : String) -> Array[Block] {
 }
 
 ///|
+/// The deepest nesting of quotes and lists the parser follows.
+///
+/// A document that nests deeper than this is not rejected: the blocks that
+/// are deeper than the limit keep their text, but they are not parsed any
+/// further. Without a limit a document of a few thousand nested block
+/// quotes exhausts the stack, and the process dies instead of answering.
+const MAX_BLOCK_DEPTH : Int32 = 64
+
+///|
 fn parse_blocks(lines : Array[String], refs : Refs) -> Array[Block] {
+  parse_blocks_at(lines, refs, 0)
+}
+
+///|
+/// The content of a block that is nested deeper than `MAX_BLOCK_DEPTH`,
+/// kept as one paragraph of literal text.
+fn literal_block(lines : Array[String], refs : Refs) -> Block {
+  let b = StringBuilder()
+  let mut i = 0
+  while i < lines.length() {
+    if i > 0 {
+      b.write_string("\n")
+    }
+    b.write_string(ltrim(chars(lines[i])))
+    i += 1
+  }
+  Paragraph(parse_inline_refs(rtrim(b.to_string()), refs))
+}
+
+///|
+fn parse_blocks_at(
+  lines : Array[String],
+  refs : Refs,
+  depth : Int32,
+) -> Array[Block] {
   let out : Array[Block] = []
   let mut i = 0
   while i < lines.length() {
@@ -500,7 +526,9 @@ fn parse_blocks(lines : Array[String], refs : Refs) -> Array[Block] {
       let raw = trimmed(chars(line))
       let rawc = chars(raw)
       let text_after = trimmed(chars(slice(raw, hl, rawc.length())))
-      out.push(Heading(hl, parse_inline_refs(strip_closing_hashes(text_after), refs)))
+      out.push(
+        Heading(hl, parse_inline_refs(strip_closing_hashes(text_after), refs)),
+      )
       i += 1
       continue
     }
@@ -531,22 +559,28 @@ fn parse_blocks(lines : Array[String], refs : Refs) -> Array[Block] {
         // when the quote ends with a paragraph: a code block inside the quote
         // ends with the quote
         if !is_blank(l) &&
-           !is_block_start(l) &&
-           setext_level(l) == 0 &&
-           ends_with_paragraph(body) {
+          !is_block_start(l) &&
+          setext_level(l) == 0 &&
+          ends_with_paragraph(body) {
           body.push(l)
           j += 1
           continue
         }
         break
       }
-      out.push(Quote(parse_blocks(body, refs)))
+      out.push(
+        if depth >= MAX_BLOCK_DEPTH {
+          Quote([literal_block(body, refs)])
+        } else {
+          Quote(parse_blocks_at(body, refs, depth + 1))
+        },
+      )
       i = j
       continue
     }
     // ---- list
     if list_marker(line) is Some(_) {
-      let (blk, next) = parse_list(lines, i, refs)
+      let (blk, next) = parse_list(lines, i, refs, depth)
       out.push(blk)
       i = next
       continue
@@ -567,7 +601,9 @@ fn parse_blocks(lines : Array[String], refs : Refs) -> Array[Block] {
             let cells = split_table_row(trimmed(chars(lines[j])))
             rows.push({
               cells: cells.map(fn(c) {
-                TableCell::{ content: parse_inline_refs(trimmed(chars(c)), refs), }
+                TableCell::{
+                  content: parse_inline_refs(trimmed(chars(c)), refs),
+                }
               }),
             })
             j += 1
@@ -662,7 +698,9 @@ fn parse_blocks(lines : Array[String], refs : Refs) -> Array[Block] {
       j += 1
     }
     if setext > 0 {
-      out.push(Heading(setext, parse_inline_refs(rtrim(para.to_string()), refs)))
+      out.push(
+        Heading(setext, parse_inline_refs(rtrim(para.to_string()), refs)),
+      )
     } else {
       out.push(Paragraph(parse_inline_refs(rtrim(para.to_string()), refs)))
     }
@@ -818,7 +856,13 @@ fn strip_closing_hashes(s : String) -> String {
 /// paragraphs. A list is loose as well when one of its items holds two
 /// blocks with a blank line between them.
 ///
-fn parse_list(lines : Array[String], i : Int32, refs : Refs) -> (Block, Int32) {
+//@ requires i >= 0 && i < lines.length()
+fn parse_list(
+  lines : Array[String],
+  i : Int32,
+  refs : Refs,
+  depth : Int32,
+) -> (Block, Int32) {
   let first = lines[i]
   let (ordered, first_ch, _, _, _) = list_marker(first).unwrap()
   let items : Array[ListItem] = []
@@ -836,13 +880,12 @@ fn parse_list(lines : Array[String], i : Int32, refs : Refs) -> (Block, Int32) {
         }
         if k < lines.length() {
           match list_marker(lines[k]) {
-            Some((is_ord, mch, _, _, _)) => {
+            Some((is_ord, mch, _, _, _)) =>
               if is_ord == ordered && mch == first_ch {
                 loose = true
                 j = k
                 continue
               }
-            }
             None => ()
           }
         }
@@ -922,7 +965,14 @@ fn parse_list(lines : Array[String], i : Int32, refs : Refs) -> (Block, Int32) {
       body.push(trimmed(chars(n)))
       j += 1
     }
-    items.push({ blocks: parse_blocks(body, refs), task, })
+    items.push({
+      blocks: if depth >= MAX_BLOCK_DEPTH {
+        [literal_block(body, refs)]
+      } else {
+        parse_blocks_at(body, refs, depth + 1)
+      },
+      task,
+    })
   }
   (List(ordered, loose, items), j)
 }

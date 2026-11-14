@@ -32,6 +32,10 @@ pub fn is_punct(Char) -> Bool
 
 pub fn is_space(Char) -> Bool
 
+pub fn is_unicode_punctuation(Char) -> Bool
+
+pub fn is_unicode_whitespace(Char) -> Bool
+
 pub fn leading_spaces(String) -> Int32
 
 pub fn ltrim(Array[Char]) -> String

@@ -123,7 +123,7 @@ fn decode_numeric(name : String, sb : StringBuilder) -> Bool {
   // non-characters left out
   if value == 0 {
     // the null character stands for the replacement character
-    match Int::to_char(0xfffd) {
+    match Int32::to_char(0xfffd) {
       Some(c) => {
         sb.write_char(c)
         true
@@ -135,7 +135,7 @@ fn decode_numeric(name : String, sb : StringBuilder) -> Bool {
   } else if value >= 0xd800 && value <= 0xdfff {
     false
   } else {
-    match Int::to_char(value) {
+    match Int32::to_char(value) {
       Some(c) => {
         sb.write_char(c)
         true

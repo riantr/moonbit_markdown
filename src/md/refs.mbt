@@ -183,24 +183,107 @@ fn split_quote_marker(s : String) -> (String, String) {
 }
 
 ///|
-/// The text of the lines from `i` on, without the block quote markers, and
-/// without the blank line that ends a definition.
+/// The largest number of lines a link reference definition may hold.
 ///
-fn def_text(lines : Array[String], i : Int32) -> String {
+/// The text of a definition is only read up to the line its label closes on,
+/// so the limit bounds the work one candidate line may cost. A definition
+/// whose label does not close within this many lines is not a definition.
+const MAX_DEF_LINES : Int32 = 64
+
+///|
+/// The text of the lines from `i` on, up to `span` lines, without the block
+/// quote markers, and without the blank line that ends a definition.
+///
+/// The second value tells whether the text holds everything the definition
+/// could reach: it stops at a blank line or at the end of the document, so
+/// nothing that follows can change the reading of the text.
+///
+fn def_text(lines : Array[String], i : Int32, span : Int32) -> (String, Bool) {
   let sb = StringBuilder()
   let mut j = i
-  while j < lines.length() {
+  let mut n = 0
+  let mut whole = false
+  while j < lines.length() && n < span {
     let (_markers, content) = split_quote_marker(lines[j])
     if j > i && is_blank(content) {
       // a definition may not hold a blank line
+      whole = true
       break
     }
     sb.write_string(content)
     sb.write_string("\n")
     j += 1
+    n += 1
   }
-  sb.to_string()
+  if j >= lines.length() {
+    whole = true
+  }
+  (sb.to_string(), whole)
 }
+
+///|
+/// The line on which the label of a definition that starts at `lines[i]`
+/// closes, or None when there is no definition there.
+///
+/// The label may be broken over several lines. It may not hold a bracket, so
+/// a second bracket ends the search: there is no definition there.
+///
+fn def_label_end(lines : Array[String], i : Int32) -> Int32? {
+  let (_markers, content) = split_quote_marker(lines[i])
+  let cs = chars(content)
+  // up to three spaces of indentation
+  let mut a = 0
+  while a < cs.length() && cs[a] == ' ' && a < 3 {
+    a += 1
+  }
+  if a >= cs.length() || cs[a] != '[' {
+    return None
+  }
+  let mut line = i
+  while line < lines.length() && line - i < MAX_DEF_LINES {
+    let (_m, c) = split_quote_marker(lines[line])
+    if line > i && is_blank(c) {
+      return None
+    }
+    let lcs = chars(c)
+    let mut j = if line == i { a + 1 } else { 0 }
+    while j < lcs.length() {
+      let ch = lcs[j]
+      if ch == ']' {
+        return Some(line)
+      }
+      if ch == '[' {
+        // a label may not hold a bracket
+        return None
+      }
+      if ch == '\\' && j + 1 < lcs.length() && is_punct(lcs[j + 1]) {
+        j += 2
+        continue
+      }
+      j += 1
+    }
+    line += 1
+  }
+  None
+}
+
+///|
+/// The reading of the title of a definition is settled: the title was read,
+/// or there is none.
+///
+const TITLE_SETTLED : Int32 = 0
+
+///|
+/// The title opened but does not close within the text. It may close further
+/// down; if it does not, this is not a definition.
+///
+const TITLE_OPEN : Int32 = 1
+
+///|
+/// The title may start further down: the text ends where the title may
+/// start, and the next line may hold it.
+///
+const TITLE_MAY_START : Int32 = 2
 
 ///|
 /// Parse a link reference definition at `lines[i]`, if there is one.
@@ -214,7 +297,52 @@ fn parse_ref_definition(
   lines : Array[String],
   i : Int32,
 ) -> (String, String, String, Int32)? {
-  let text = def_text(lines, i)
+  let label_end = match def_label_end(lines, i) {
+    Some(l) => l
+    None => return None
+  }
+  // the label, and the two lines that may follow it: the destination and the
+  // title may each stand on the line after the label
+  let mut span = label_end - i + 3
+  let mut result = None
+  let mut reading = true
+  while reading {
+    let (text, whole) = def_text(lines, i, span)
+    match read_def(text) {
+      Some((label, dest, title, next, title_state)) =>
+        if title_state == TITLE_SETTLED {
+          result = Some((label, dest, title, i + next))
+          reading = false
+        } else if title_state == TITLE_MAY_START && whole {
+          // the text ends where the title may start, and there is nothing
+          // after it that may hold the title: the definition has no title
+          result = Some((label, dest, "", i + next))
+          reading = false
+        } else if whole {
+          // the title opened and did not close, and nothing may follow the
+          // text but a blank line: this is not a definition
+          reading = false
+        } else if span >= MAX_DEF_LINES {
+          // the title does not close within the lines a definition may hold:
+          // this is not a definition
+          reading = false
+        } else {
+          // the title may close further down: read more of the text
+          span = span * 2
+        }
+      None => reading = false
+    }
+  }
+  result
+}
+
+///|
+/// Read a link reference definition out of a text.
+///
+/// The last value tells how far the reading of the title has got: it may be
+/// settled, the title may still start, or the title may still close.
+///
+fn read_def(text : String) -> (String, String, String, Int32, Int32)? {
   let cs = chars(text)
   // up to three spaces of indentation
   let mut a = 0
@@ -273,6 +401,7 @@ fn parse_ref_definition(
   // the optional title, which has to be separated from the destination by
   // whitespace
   let mut title = ""
+  let mut title_state = TITLE_SETTLED
   let mut end = after
   let mut p = after
   while p < cs.length() && (cs[p] == ' ' || cs[p] == '\t') {
@@ -286,7 +415,9 @@ fn parse_ref_definition(
       p += 1
     }
   }
-  if p > after && p < cs.length() && (cs[p] == '"' || cs[p] == '\'' || cs[p] == '(') {
+  if p > after &&
+    p < cs.length() &&
+    (cs[p] == '"' || cs[p] == '\'' || cs[p] == '(') {
     match scan_ref_title(cs, p) {
       Some((t, after_title)) => {
         // nothing may follow the title but spaces
@@ -305,18 +436,31 @@ fn parse_ref_definition(
         // else the title stands on a later line and something follows it, so
         // the definition ends at the destination
       }
-      None => ()
+      None => {
+        // The title opens but does not close within the text. It may close
+        // further down, so where the definition ends is not known yet: the
+        // reading is not settled, and the caller reads more of the text.
+        title_state = TITLE_OPEN
+        end = after
+      }
+    }
+  } else if p >= cs.length() {
+    // the text ends where the title may start: a title may still follow
+    title_state = TITLE_MAY_START
+  }
+  // and nothing may follow the definition but spaces. This cannot be checked
+  // while the title is still open: the text after the destination is the
+  // title, not something that stands after the definition.
+  if title_state == TITLE_SETTLED {
+    let mut q = end
+    while q < cs.length() && (cs[q] == ' ' || cs[q] == '\t') {
+      q += 1
+    }
+    if q < cs.length() && cs[q] != '\n' {
+      return None
     }
   }
-  // and nothing may follow the definition but spaces
-  let mut q = end
-  while q < cs.length() && (cs[q] == ' ' || cs[q] == '\t') {
-    q += 1
-  }
-  if q < cs.length() && cs[q] != '\n' {
-    return None
-  }
-  Some((label_text, dest, title, i + line_count(cs, end)))
+  Some((label_text, dest, title, line_count(cs, end), title_state))
 }
 
 ///|
@@ -399,6 +543,7 @@ fn line_count(cs : Chars, end : Int32) -> Int32 {
 /// A fenced code block runs to its closing fence, an indented code block to
 /// the last line that is indented by four columns.
 ///
+//@ requires i >= 0 && i < lines.length()
 fn code_block_end(lines : Array[String], i : Int32) -> Int32? {
   let line = lines[i]
   if is_shallow(line) {

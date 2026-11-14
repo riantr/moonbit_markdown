@@ -133,7 +133,11 @@ pub fn paper_of(spec : String) -> (Double, Double)? {
       if cut <= 0 {
         None
       } else {
-        match (number_mm(spec[0:cut].to_owned()), number_mm(spec[cut + 1:n].to_owned())) {
+        match
+          (
+            number_mm(spec[0:cut].to_owned()),
+            number_mm(spec[cut + 1:n].to_owned()),
+          ) {
           (Some(w), Some(h)) => Some((w, h))
           _ => None
         }
@@ -146,7 +150,7 @@ pub fn paper_of(spec : String) -> (Double, Double)? {
 /// The sheet computed for one diagram.
 pub struct FigurePage {
   /// which figure of the document this sheet belongs to, as `data-fig`
-  index : Int
+  index : Int32
   /// the sheet, in millimetres
   width_mm : Double
   height_mm : Double

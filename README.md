@@ -19,14 +19,15 @@ the repository root, so the two can be compared directly:
 
 ## Quick check
 
-Six commands, six one-line verdicts. They need `node`, `python` with
-`pypdf`, and a headless Chrome; nothing else.
+Six commands, six one-line verdicts. They need `node` with `puppeteer`
+installed (`npm i puppeteer`), `python` with `pypdf`, and a headless Chrome;
+nothing else.
 
 ```
-python ci/ci.py                                # CI PASS: 7/7 steps passed
+python ci/ci.py                                # CI PASS: 9/9 steps passed
 python ci/ci.py --tiers browser,spec           # the slow half, 4 more steps
 moon check                                     # 0 errors, 0 warnings
-moon test                                      # 86/86, failed: 0
+moon test                                      # 105/105, failed: 0
 python verify_pdf_moonbit.py                   # ALL PDF COMPARISON CHECKS PASSED
 node verify_page.js moonbit_doubleML_state_diagram.html <in.mmd>
                                                # ALL PAGE CHECKS PASSED
@@ -35,10 +36,12 @@ node verify_page.js moonbit_doubleML_state_diagram.html <in.mmd>
 `node verify_md_page.js md_with_diagram.html` checks the Markdown side and
 prints `MD PAGE CHECKS PASSED`.
 
-The two documents are large — the page is 5.9 MB and the PDF 7.3 MB, because
-the mermaid runtime is inlined and the PDF carries 117 pages. The scripts
-above read them for you and print a verdict; there is no need to open either
-one to check the work.
+The two documents are large — the page runs to about 6 MB and the PDF to
+about 6 MB, because the mermaid runtime is inlined and the PDF carries
+117 pages. The exact sizes follow the mermaid release that is inlined, so
+they are given as figures of speech, not as facts a build can be checked
+against. The scripts above read them for you and print a verdict; there is
+no need to open either one to check the work.
 
 In a fresh clone the documents are not there — they are build products, and
 the section below says how to make each one. The quickest way to the
@@ -59,12 +62,46 @@ moon run . md2html  md_with_diagram.md md_with_diagram.html
 | `src/md` | Markdown parser and HTML5 renderer | `src/text` |
 | `src/mermaid` | Mermaid scan parser and self-contained page builder | `src/text` |
 | `src/printpdf` | the print layout: the split, the pagination maths, the page assembly | `src/text`, `src/mermaid` |
-| `src/mdcli` | the command line tool | `moonbitlang/async`, the pure packages |
+| `src/mdcli` | the command line tool | the pure packages; `moonbitlang/core/async` on `native` and `wasm` |
 
-The four pure packages have no dependencies and build for `native`, `js` and
-`wasm` alike, so the same code can render Markdown to HTML5 in a browser.
-Only the command line tool needs a process runtime, and it is native-only by
-construction.
+The four pure packages have no dependencies and build for `native`, `js`,
+`wasm` and `wasm-gc` alike, so the same code can render Markdown to HTML5 in a
+browser.
+
+### The four targets
+
+The command line tool builds and runs on all four targets too, and the whole
+module — the pure packages, the tool and the executable in the root — is
+verified on each of them by `ci/check_targets.py`: it builds every target from
+scratch, looks for the artefact, starts it, and runs the test suite.
+
+What differs between the targets is the file and process layer underneath the
+tool, which is one file per target in `src/mdcli`:
+
+| target | the file and process layer |
+| --- | --- |
+| `native` | the file system and the process runtime of the toolchain, driven to completion from a synchronous caller |
+| `wasm` | the same |
+| `js` | Node's own `fs` and `child_process` |
+| `wasm-gc` | the file system bridge of the wasm host |
+
+The tool itself is synchronous on every target, so there is one implementation
+of it rather than one per target. That is not a small thing: `wasm-gc` has no
+async runtime at all, so an `async fn main` cannot even be linked there, and a
+tool written in the shape of the other three would not reach it.
+
+One thing `wasm-gc` cannot do is start another program: its host offers no
+process module. The commands that drive a browser — `print2pdf`, `md2pdf`,
+`mmd2pdf` and `mmd2measure` — therefore report that and produce nothing
+there, with a non-zero exit code. Everything else, `md2html` and `mmd2html`
+included, works on all four.
+
+The async runtime is the one the toolchain carries, `moonbitlang/core/async`,
+not a package that is downloaded from the registry. The module therefore
+depends on nothing at all: `moon tree` reports no dependencies, and there is
+no version to pin and no version to upgrade. The package that imports it
+acknowledges that the toolchain marks it as experimental, with
+`options("allow-experimental-packages": true)`.
 
 ## Two facts that shape the design
 
@@ -114,8 +151,9 @@ The browser is a rasteriser here, not part of the algorithm: the page is
 already laid out, and Chrome only turns it into PDF pages.
 
 Both kinds of document print as A4 portrait with 12 mm margins. The Mermaid
-runtime is 2.6 MB, so a Markdown page only carries it when the document
-actually holds a diagram; a document without one stays a few kilobytes.
+runtime is a few megabytes, so a Markdown page only carries it when the
+document actually holds a diagram; a document without one stays a couple of
+kilobytes.
 
 ### Putting each figure on its own page
 
@@ -258,10 +296,10 @@ diagram would only show its source would be a broken document under the name
 the caller asked for. A document without a diagram never needs the runtime,
 so it is never touched by a missing one.
 
-**Exit codes:** MoonBit exposes no process-exit entry point in the packages
-available here, so a failure prints an `ERROR` line and the process still
-exits 0. A caller must read the output, not the exit code. The same
-limitation is recorded in `riantr/moonbit_static_analysis`.
+**Exit codes:** a command that could not do what it was asked for prints an
+`ERROR` line and exits 1; a command that did what it was asked for exits 0. The
+usage text, printed when the arguments do not name a command, still exits 0: it
+is not a failure, it is the answer to a question nobody asked.
 
 ## A note on strings
 
@@ -303,21 +341,20 @@ generated as well: `node tools/gen_entity_table.js` writes it from the
 reference implementation's table, so that the two thousand names do not have
 to be typed by hand.
 
-**575 of the 652 examples agree (88.2 %).** The sections that agree completely:
-thematic breaks, ATX headings, indented and fenced code, HTML blocks, link
-reference definitions (26 of 27), paragraphs, blank lines, block quotes, list
-items, code spans, images, autolinks, raw HTML, backslash escapes, the HTML5
-character references, hard and soft line breaks, and the textual content.
+**635 of the 652 examples agree (97.4 %).** The sections that agree completely:
+thematic breaks, ATX headings, indented and fenced code, HTML blocks, paragraphs,
+blank lines, block quotes, list items, inlines, code spans, emphasis and strong
+emphasis, images, autolinks, raw HTML, backslash escapes, the HTML5 character
+references, precedence, hard and soft line breaks, and the textual content.
 
 What is left is stated rather than hidden:
 
 | section | | |
 | --- | --- | --- |
-| emphasis and strong emphasis | 75/132 | the full delimiter-stack algorithm of the spec — the "rule of three" and the nesting of emphasis — is not implemented; the parser pairs an opener with the next closer that fits |
-| links | 78/90 | the same, and the cases where the text of a link holds an unfinished HTML tag |
+| links | 81/90 | the cases where the text of a link holds an unfinished HTML tag |
 | lists | 22/26 | a list whose item holds a nested list with a blank line inside it is called loose when the spec calls it tight |
 | tabs | 9/11 | the tab stops inside a list item are counted in columns, not in tab stops |
-| setext headings, link reference definitions | 26/27 each | one case each |
+| setext headings, link reference definitions | 26/27 each | one case each: a label that differs from its reference only in Greek capitals is not folded, because the case folding of the toolchain covers ASCII only |
 
 The report of the script lists the examples that differ, section by section,
 which is the honest measure of what is left.
@@ -327,6 +364,8 @@ which is the honest measure of what is left.
 ```
 moon test            # the whole module
 moon test src/md     # one package
+python ci/check_fmt.py   # the sources are formatted the way `moon fmt` formats them
+python ci/check_targets.py   # every target builds, starts and passes its tests
 ```
 
 ## Verifying the output
@@ -395,16 +434,41 @@ node build_pdf.js                          # the REFERENCE pdf
 `<name>.print.html`. The reference PDF is produced by `node build_pdf.js`,
 which is the reference implementation's own script.
 
-Deleting these files loses nothing but bytes: the two documents whose content
-is pinned can be checked by their hash, and the build reproduces both of them
-byte for byte.
+The two PDFs have to be built with the **same** mermaid runtime. The numbers
+in them come from the browser measuring the drawing, and the measurement
+depends on the runtime that drew it: the same runtime gives both PDFs the
+same geometry, and a different one gives the reference a different key map
+from the MoonBit PDF. `MERMAID_JS` names the runtime for both, and
+`verify_pdf_moonbit.py` compares the geometry as well as the text, so a
+mismatch is a failure rather than a difference nobody notices.
 
-| document | SHA256 |
-| --- | --- |
-| `moonbit_doubleML_state_diagram.html` | `92DF5501451B515599A278E992A38534B1D3C0FD136B898CF7C174B5748BFFB0` |
-| `moonbit_doubleML_state_diagram_moonbit.print.html` | `332BCCC250674F881EEAAB4EE4CB94BC693D5FBAFBE09C592935260C722D22EB` |
+The browser scripts need puppeteer, which is not a dependency of this module
+and is not pinned: `npm i puppeteer` puts a copy in `node_modules/`, and
+`env.js` looks there first. Its browser download is not needed — `CHROME`
+names the browser to drive, and the usual install locations are tried when
+it is not set.
 
-The PDFs have no pinned hash: Chrome writes a timestamp into every one of
+Deleting these files loses nothing but bytes: they are build products, and
+`ci/check_artifacts.py` checks their structure against the source they were
+generated from.
+
+| document | files | notice states | notes | findings |
+| --- | --- | --- | --- | --- |
+| `moonbit_doubleML_state_diagram.html` | 221 | 2147 | 2371 | 1 |
+
+The four numbers are the ones the document states about itself, and
+`ci/check_artifacts.py` re-derives every one of them from the tracked `.mmd`
+source: the page has to agree with the source, and the source has to agree
+with this table. No document is compared by its bytes — the mermaid runtime
+is inlined in it, the runtime is not pinned to a release, and a page built
+with a different mermaid release is just as correct as this one.
+
+The print page is not in the table because it is written by the same command
+as the PDF, which needs a browser. The gates tier must run without one, so
+the table names only the documents that need nothing but this repository.
+`ci/check_artifacts.py` still checks the print page when it is on disk.
+
+The PDFs are not checked at all: Chrome writes a timestamp into every one of
 them, so each run differs. Compare their CONTENT with
 `verify_pdf_moonbit.py`.
 
@@ -426,7 +490,7 @@ promise as three rules, and `ci/ci.py` is the only thing that acts on them:
   tag**, so what is published there is always a named, tested state.
 
 ```
-python ci/ci.py --self-check                    # 27/27: the engine's own accounting
+python ci/ci.py --self-check                    # 29/29: the engine's own accounting
 python ci/ci.py                                 # env + build + gates (fast, portable)
 python ci/ci.py --tiers env,build,gates,browser,spec --check-release
                                                 # would a tag be allowed? changes nothing
@@ -436,8 +500,8 @@ python ci/ci.py --tiers env,build,gates,browser,spec --tag --push
 | tier | what it runs | needs |
 | --- | --- | --- |
 | `env` | `moon`, `node`, `python` versions | nothing |
-| `build` | `moon check`, `moon test`, the four pure packages on all four targets | nothing |
-| `gates` | `ci/check_artifacts.py`: the hashes pinned in the table above | the generated documents |
+| `build` | `moon check`, `moon test`, `ci/check_fmt.py`: the source formatting check, the four pure packages on all four targets, `ci/check_targets.py`: every target builds, starts and passes its tests | nothing |
+| `gates` | `ci/check_artifacts.py`: the structure of the generated documents | the generated documents |
 | `browser` | `verify_page.js`, `verify_md_page.js`, `verify_pdf_moonbit.py` | Chrome, the generated documents |
 | `spec` | `tools/commonmark_spec.js`, against the floor this README states | the spec download |
 

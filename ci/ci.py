@@ -26,14 +26,17 @@ what passed.
 
     env      tool versions. Cheap, and the first thing to paste into a bug
              report -- "it used to pass" is usually a toolchain delta.
-    build    `moon check`, `moon test`, and the four pure packages on all four
-             targets.
-    gates    the checks that need nothing but this repository: the pinned
-             artefact hashes, read out of README.md.
+    build    `moon check`, `moon test`, the source formatting check, the
+             four pure packages on all four targets, and the four-target
+             verification: every target builds, starts and passes its tests.
+    gates    the checks that need nothing but this repository: the structure
+             of the generated documents, read out of README.md.
     browser  the checks that drive Chrome: the page, the Markdown page, and the
              PDF comparison. Needs the generated documents to exist.
     spec     the CommonMark measurement, 652 examples. Downloads the spec on
-             the first run and takes about two minutes.
+             the first run and takes a few minutes: every example is
+             rendered by its own `moon run`, and the toolchain's own startup
+             is most of the cost.
 
 The default is env + build + gates: it is portable (no browser, no network)
 and it is what the tag is normally granted from. The other two are opt-in
@@ -66,10 +69,14 @@ ARTIFACT_DIR = os.path.join(ROOT, "ci", "artifacts")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import release as rel  # noqa: E402  -- must follow the sys.path insert above
 
-# The four packages that carry no process dependency. `src/mdcli` is native-only
-# by construction (it reads files and starts processes), so it is checked on
-# native alone.
+# The four packages that carry no process dependency. They are checked on
+# every target. The command line tool and the executable in the root are
+# covered by the four-target verification instead, which builds them, starts
+# them and runs the test suite on each target.
 PURE_PACKAGES = ["src/text", "src/md", "src/mermaid", "src/printpdf"]
+
+# The targets the module reaches. The count is read out of the check's own
+# summary, and this is what it is compared against.
 TARGETS = ["native", "js", "wasm", "wasm-gc"]
 
 # The source document the root artefacts are generated from. It is tracked by
@@ -80,7 +87,8 @@ TIERS = ("env", "build", "gates", "browser", "spec")
 
 # The tiers that are opt-in, and therefore have to be named when a tag is
 # granted. This is a measurement, not a preference: browser needs Chrome and
-# takes minutes, spec downloads the CommonMark spec and takes about two.
+# takes minutes, spec downloads the CommonMark spec and takes a few minutes
+# more.
 OPT_IN_TIERS = ("browser", "spec")
 
 DEFAULT_TIMEOUT = 3600
@@ -243,10 +251,71 @@ def build_steps():
         # `moon test` exits 0 while running nothing on a package with no tests;
         # the guard is on because 0 tests is not this repository's state.
         Step("build", "moon test", ["moon", "test"], zero_work_guard=True),
+        # The formatting check runs the toolchain's own formatter on a scratch
+        # copy of the sources and compares the bytes. `moon fmt --check` cannot
+        # carry this gate: it renders its diff through `git diff --no-index`,
+        # which exits 1 on a difference -- the normal case for a file that
+        # needs formatting -- and the toolchain reads that as a failed
+        # command. ci/check_fmt.py explains the whole of it.
+        #
+        # `sys.executable` and not the bare name "python": the workflow runs
+        # this script as `python3 ci/ci.py`, and the runner is not obliged to
+        # have a `python` on the PATH.
+        Step("build", "source formatting",
+             [sys.executable, os.path.join("ci", "check_fmt.py")],
+             verdict=format_verdict),
         Step("build", "pure packages on all targets",
              ["moon", "check", "--target", "all"] + PURE_PACKAGES),
+        # Every target, built from scratch, with the artefact looked for and
+        # started: a build that produced nothing is not a target the module
+        # reaches. ci/check_targets.py explains the whole of it.
+        Step("build", "four-target verification",
+             [sys.executable, os.path.join("ci", "check_targets.py")],
+             verdict=targets_verdict),
     ]
     return steps
+
+
+def format_verdict(out):
+    """The formatting gate's own count: the tree is formatted only if the
+    formatter looked at at least one file.
+
+    The helper prints how many files it compared, because a gate that checked
+    nothing must not be able to look like a gate that found nothing wrong.
+    A count of zero is a failure -- the same standard the `moon test` step
+    keeps with its zero-work guard.
+    """
+    m = None
+    for m2 in re.finditer(r"all (\d+) files are formatted", out):
+        m = m2
+    if m is None:
+        return False, "no formatting verdict in the output"
+    count = int(m.group(1))
+    if count <= 0:
+        return False, "vacuous pass: 0 files checked"
+    return True, "%d files formatted" % count
+
+
+def targets_verdict(out):
+    """The four-target count: pass only when every target is green.
+
+    The check knows which target failed and why; this only has to agree
+    that the run was complete. A run that named fewer targets than the
+    module claims to reach is not a pass either -- it is a run that stopped
+    early.
+    """
+    m = None
+    for m2 in re.finditer(r"targets:\s*(\d+)/(\d+)", out):
+        m = m2
+    if m is None:
+        return False, "no target summary in the output"
+    got, total = int(m.group(1)), int(m.group(2))
+    if total != len(TARGETS):
+        return False, "expected %d targets, the summary named %d" % (
+            len(TARGETS), total)
+    if got != total:
+        return False, "%d/%d targets are green" % (got, total)
+    return True, "%d/%d targets" % (got, total)
 
 
 def conformance_verdict(out):
@@ -284,7 +353,7 @@ def conformance_floor():
 
 def gate_steps():
     return [
-        Step("gates", "pinned artefact hashes",
+        Step("gates", "generated document structure",
              ["python", os.path.join("ci", "check_artifacts.py")]),
     ]
 
@@ -617,6 +686,13 @@ def self_check():
     case("verdict missing number",
          Step("self", "spec-none", ["cmd", "/c", "echo nothing here"],
               verdict=conformance_verdict), "failed")
+    # The four-target count: all four green passes, one short does not.
+    case("verdict all targets green",
+         Step("self", "targets-ok", ["cmd", "/c", "echo targets: 4/4"],
+              verdict=targets_verdict), "passed")
+    case("verdict one target short",
+         Step("self", "targets-low", ["cmd", "/c", "echo targets: 3/4"],
+              verdict=targets_verdict), "failed")
 
     # The full-output capture, on the case it exists for: a step that fails
     # after printing more than the tail keeps.
@@ -635,7 +711,7 @@ def self_check():
     if "PROBE_LINE1" not in kept:
         failures.append("full output: the line the tail drops is not in the log")
 
-    total = 7
+    total = 9
     failures.extend(release_self_check())
     total += release_self_check_count
 

@@ -467,7 +467,7 @@ fn print_script() -> String {
     "    } else if (el.dataset.mode === 'fit') {",
     // one page: the drawing fills its holder and the browser scales it down,
     // centred, so nothing is cropped and nothing spills onto a second sheet
-    "      attrs = ' width=\"100%\" height=\"100%\" viewBox=\"' + vb + '\" preserveAspectRatio=\"xMidYMid meet\"';",
+     "      attrs = ' width=\"100%\" height=\"100%\" viewBox=\"' + vb + '\" preserveAspectRatio=\"xMidYMid meet\"';",
     "    } else {", "      attrs = ' width=\"100%\" height=\"100%\" viewBox=\"' + vb + '\" preserveAspectRatio=\"xMinYMin meet\"';",
     "    }", "    var s = svg.replace(/style=\"max-width:[^\"]*\"/, 'style=\"max-width:none\"');",
     "    s = s.replace(/<svg([^>]*)>/, function (whole, a) {", "      a = a.replace(/\\s*width=\"[^\"]*\"/, '');",

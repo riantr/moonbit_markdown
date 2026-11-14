@@ -48,7 +48,7 @@ pub struct Measurement {
 pub fn measurement_of(
   dims : Array[(Double, Double)],
   nodes : Array[NodeBox],
-  fonts? : Array[Double] = [],
+  fonts~ : Array[Double] = [],
 ) -> Measurement {
   { dims, fonts, nodes, errors: [], }
 }
@@ -188,12 +188,10 @@ fn measure_script() -> String {
     "      el.setAttribute('width', String(vb[2]));", "      el.setAttribute('height', String(vb[3]));",
     // the label size is measured, not assumed: a figure page is sized from it,
     // and a theme or a diagram type may not use Mermaid's 16 px default
-    "      var t = el.querySelector('text');", "      var fs = 0;",
-    "      if (t) { fs = parseFloat(window.getComputedStyle(t).fontSize) || 0; }",
-    "      out.push('F' + TAB + i + TAB + fs);",
-    "      el.removeAttribute('style');", "      var nodes = [];",
-    "      var list = el.querySelectorAll('g.node');",    "      for (var k = 0; k < list.length; k++) {", "        var e = list[k];",
-    "        var b = null;", "        try { b = e.getBBox(); } catch (err) { continue; }",
+     "      var t = el.querySelector('text');", "      var fs = 0;", "      if (t) { fs = parseFloat(window.getComputedStyle(t).fontSize) || 0; }",
+    "      out.push('F' + TAB + i + TAB + fs);", "      el.removeAttribute('style');",
+    "      var nodes = [];", "      var list = el.querySelectorAll('g.node');", "      for (var k = 0; k < list.length; k++) {",
+    "        var e = list[k];", "        var b = null;", "        try { b = e.getBBox(); } catch (err) { continue; }",
     "        if (!b) { continue; }", "        var mtx = e.getCTM();", "        if (!mtx) { continue; }",
     "        var p0 = new DOMPoint(b.x, b.y).matrixTransform(mtx);", "        var p1 = new DOMPoint(b.x + b.width, b.y + b.height).matrixTransform(mtx);",
     "        nodes.push([e.getAttribute('id') || '', p0.x, p0.y, p1.x - p0.x, p1.y - p0.y]);",

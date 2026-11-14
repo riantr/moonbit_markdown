@@ -4,11 +4,11 @@ package "riantr/moonbit_markdown/src/mdcli"
 // Values
 pub fn absolute_path(String) -> String
 
-pub async fn dump_dom(String, String) -> String?
+pub fn dump_dom(String, String) -> String?
 
-pub async fn print_to_pdf(String, String, String, Bool) -> Unit
+pub fn print_to_pdf(String, String, String, Bool) -> Unit
 
-pub async fn run(Array[String]) -> Unit
+pub fn run(Array[String]) -> Unit
 
 // Errors
 

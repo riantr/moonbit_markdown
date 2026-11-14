@@ -1,7 +1,6 @@
 ///|
 /// Driving the headless browser.
-
-///|
+///
 /// The browser is a rasteriser here: it renders the diagrams, and it turns
 /// the laid-out sheets into a PDF. It decides nothing about the document -
 /// which page holds what, how big a crop is, where a tick mark goes, is all
@@ -18,8 +17,11 @@
 /// Both wait for the page's own work: `--virtual-time-budget` keeps the
 /// browser alive until the page has finished rendering its diagrams, so the
 /// result is never a half-drawn document.
-
-///|
+///
+/// Not every target can start a browser. The wasm-gc host has no way to
+/// start another program at all, so there the two commands below report
+/// that and produce nothing - which is the same thing they do when the
+/// browser is not installed.
 
 ///|
 /// The flags every headless run needs.
@@ -73,27 +75,27 @@ pub fn absolute_path(path : String) -> String {
 ///|
 /// Render a page and read its DOM back as text.
 ///
-pub async fn dump_dom(chrome : String, path : String) -> String? {
+pub fn dump_dom(chrome : String, path : String) -> String? {
+  if !io_exists(chrome) {
+    // the same message the print path gives: a browser that is not there is
+    // a fact about this machine, and the tool says so instead of letting the
+    // process runtime report that it could not start what is not there
+    println("ERROR\tno browser at \{chrome}")
+    return None
+  }
   let argv = base_flags()
   argv.push("--virtual-time-budget=300000")
   argv.push("--dump-dom")
   argv.push(absolute_path(path))
-  let (code, out, err) = @process.collect_output(chrome, argv)
-  if code != 0 {
-    println("ERROR\tthe browser exited with \{code}")
-    let e = err.text() catch { _ => "" }
-    if !e.is_empty() {
-      println(e)
+  let r = io_run(chrome, argv)
+  if r.code != 0 {
+    println("ERROR\tthe browser exited with \{r.code}")
+    if !r.err.is_empty() {
+      println(r.err)
     }
     return None
   }
-  let dom = out.text() catch {
-    e => {
-      println("ERROR\tcannot read the browser's output: \{e}")
-      return None
-    }
-  }
-  Some(dom)
+  Some(r.out)
 }
 
 ///|
@@ -104,13 +106,13 @@ pub async fn dump_dom(chrome : String, path : String) -> String? {
 /// decides the paper (A4 portrait) and the margins (12 mm), so the printed
 /// sheets line up with the boxes the layout computed.
 ///
-pub async fn print_to_pdf(
+pub fn print_to_pdf(
   in_path : String,
   out_path : String,
   chrome : String,
   header_footer : Bool,
 ) -> Unit {
-  if !@fs.exists(chrome) {
+  if !io_exists(chrome) {
     println("ERROR\tno browser at \{chrome}")
     return
   }
@@ -122,17 +124,16 @@ pub async fn print_to_pdf(
   }
   argv.push("--print-to-pdf=" + absolute_path(out_path))
   argv.push(absolute_path(in_path))
-  let (code, _out, err) = @process.collect_output(chrome, argv)
-  if code != 0 {
-    println("ERROR\tthe browser exited with \{code}")
-    let e = err.text() catch { _ => "" }
-    if !e.is_empty() {
-      println(e)
+  let r = io_run(chrome, argv)
+  if r.code != 0 {
+    println("ERROR\tthe browser exited with \{r.code}")
+    if !r.err.is_empty() {
+      println(r.err)
     }
     return
   }
-  if @fs.exists(out_path) {
-    let size = @fs.file_size(out_path)
+  if io_exists(out_path) {
+    let size = io_file_size(out_path)
     println("wrote \{out_path} (\{size / 1024} KB)")
   } else {
     println("ERROR\tthe browser reported success but wrote no file")

@@ -47,13 +47,20 @@ keywords = [
 
 description = "Markdown and Mermaid to HTML5, and HTML5 to a paginated PDF, in MoonBit"
 
-// native, not wasm: the command line tool drives a headless browser to
-// rasterise Mermaid diagrams and to print the paginated document to PDF.
-// The pure packages are target-agnostic; only src/mdcli needs a process
-// runtime, and it is native-only by construction.
+// native is the preferred target: the command line tool drives a headless
+// browser to rasterise Mermaid diagrams and to print the paginated document
+// to PDF, and that is what a machine runs it on.
+//
+// The module is not native-only. It builds and runs on js, wasm and wasm-gc
+// as well; what differs between the targets is the file and process layer
+// under src/mdcli, which brings one file per target. The wasm-gc host cannot
+// start another program, so the commands that drive a browser report that
+// there. `ci/check_targets.py` verifies all four targets.
 
 preferred_target = "native"
 
-import {
-  "moonbitlang/async@0.22.4",
-}
+// No dependency is declared here: the async runtime this module needs comes
+// with the toolchain, as `moonbitlang/core/async`. It is not a package that
+// is downloaded from the registry and pinned to a version, so there is
+// nothing to pin and nothing to upgrade - the runtime is whatever the
+// toolchain carries, and the code is written against that one.

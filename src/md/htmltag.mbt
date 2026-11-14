@@ -263,7 +263,9 @@ fn scan_pi_or_declaration(cs : Chars, at : Int32) -> Int32? {
     }
     return None
   }
-  if at + 2 < cs.length() && cs[at + 1] == '!' && cs[at + 2].is_ascii_alphabetic() {
+  if at + 2 < cs.length() &&
+    cs[at + 1] == '!' &&
+    cs[at + 2].is_ascii_alphabetic() {
     let mut j = at + 2
     while j < cs.length() && cs[j] != '>' {
       j += 1

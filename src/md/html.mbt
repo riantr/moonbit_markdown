@@ -98,7 +98,8 @@ fn heading_id(text : String) -> String {
 /// ones of a loose list with it.
 
 ///|
-fn render_list(ordered : Bool, loose : Bool, items : Array[ListItem]) -> String {  let sb = StringBuilder()
+fn render_list(ordered : Bool, loose : Bool, items : Array[ListItem]) -> String {
+  let sb = StringBuilder()
   let tag = if ordered { "ol" } else { "ul" }
   sb.write_string("<")
   sb.write_string(tag)
@@ -158,7 +159,7 @@ fn render_blocks_tight(blocks : Array[Block], tight : Bool) -> String {
         sb.write_string(level.to_string())
         sb.write_string(">")
       }
-      Paragraph(cs) => {
+      Paragraph(cs) =>
         if tight {
           sb.write_string(render_inline(cs))
         } else {
@@ -166,7 +167,6 @@ fn render_blocks_tight(blocks : Array[Block], tight : Bool) -> String {
           sb.write_string(render_inline(cs))
           sb.write_string("</p>\n")
         }
-      }
       CodeBlock(info, code) => {
         sb.write_string("<pre><code")
         if !info.is_empty() {
@@ -297,18 +297,13 @@ pub fn needs_runtime(blocks : Array[Block]) -> Bool {
   for b in blocks {
     match b {
       Mermaid(_) => return true
-      Quote(inner) => {
-        if needs_runtime(inner) {
-          return true
-        }
-      }
-      List(_, _, items) => {
+      Quote(inner) => if needs_runtime(inner) { return true }
+      List(_, _, items) =>
         for it in items {
           if needs_runtime(it.blocks) {
             return true
           }
         }
-      }
       _ => ()
     }
   }
@@ -335,11 +330,10 @@ fn collect_mermaid(blocks : Array[Block], out : Array[String]) -> Unit {
     match b {
       Mermaid(src) => out.push(src)
       Quote(inner) => collect_mermaid(inner, out)
-      List(_, _, items) => {
+      List(_, _, items) =>
         for it in items {
           collect_mermaid(it.blocks, out)
         }
-      }
       _ => ()
     }
   }
@@ -412,8 +406,8 @@ pub fn render_page(
   title : String,
   body : String,
   mermaid_js : String,
-  figures_one_page? : Bool = false,
-  extra_print_css? : String = "",
+  figures_one_page~ : Bool = false,
+  extra_print_css~ : String = "",
 ) -> String {
   let sb = StringBuilder()
   sb.write_string(

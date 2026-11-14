@@ -11,7 +11,8 @@
 ///
 /// Options:
 ///   --mermaid-js <path>   the mermaid runtime to inline (default: the copy
-///                          inside the mermaid-cli npm package)
+///                          inside the mermaid-cli npm package, looked for
+///                          through MERMAID_JS and the npm roots)
 ///   --chrome <path>       the Chrome/Edge binary to drive for PDF output
 ///   --header-footer       let the browser print its own header and footer
 ///                          (off by default: the document has its own margins)
@@ -31,12 +32,18 @@
 /// reading. Splitting the difference per page is what CSS named pages are for,
 /// and the size a drawing needs is measured from the drawing itself.
 ///
-/// NOTE ON EXIT CODES: MoonBit exposes no process-exit entry point in the
-/// packages available here, so a failure prints an ERROR line on stderr and
-/// the process still exits 0. A caller must read the output, not the exit
-/// code. This is the same limitation riantr/moonbit_static_analysis records.
+/// NOTE ON EXIT CODES: a command that could not produce what it was
+/// asked for exits non-zero. The messages are the same ones as before -
+/// what a caller can rely on now is the exit code, so a CI step does not
+/// have to read the output to know whether the page was written.
 
 ///|
+/// The mermaid runtime the author used.
+///
+/// It is the last fallback of the lookup: the npm roots are tried first,
+/// and this copy is what is left when none of them has one. It is kept
+/// because it is the copy on the machine the tool was written on, and
+/// that machine must keep working.
 const DEFAULT_MERMAID_JS : String = "C:\\Users\\hp\\AppData\\Roaming\\npm\\node_modules\\@mermaid-js\\mermaid-cli\\node_modules\\mermaid\\dist\\mermaid.min.js"
 
 ///|
@@ -95,43 +102,234 @@ fn usage() -> Unit {
 }
 
 ///|
+/// The mermaid runtime: where it is looked for, and in what order.
+///
+/// The order is the one the Python tool in this repository uses, so the
+/// two find the runtime in the same places:
+///
+///   1. the MERMAID_JS variable, if it is set - and it has to be there,
+///      because a variable that names nothing is an error and not a hint
+///      to look further;
+///   2. the npm roots: $NPM_CONFIG_PREFIX, and then the roots the
+///      platform puts a global install in;
+///   3. the author's own copy, as the last fallback.
+///
+/// Under each root two names are tried: the runtime inside the
+/// mermaid-cli package, and the one in a plain mermaid install.
+///
+
+///|
+/// The value of a variable, or None when it is not set or is empty.
+///
+/// An empty variable says nothing, so it is the same as a variable that
+/// is not there at all.
+///
+fn env_of(env : Map[String, String], key : String) -> String? {
+  match env.get(key) {
+    Some(v) => if v.is_empty() { None } else { Some(v) }
+    None => None
+  }
+}
+
+///|
+/// Whether this is Windows.
+///
+/// `OS` is the variable Windows itself sets, and `APPDATA` is one only
+/// Windows has: either of them says Windows, and neither is set on the
+/// other systems.
+///
+fn is_windows(env : Map[String, String]) -> Bool {
+  match env_of(env, "OS") {
+    Some(os) => os == "Windows_NT"
+    None =>
+      match env_of(env, "APPDATA") {
+        Some(_) => true
+        None => false
+      }
+  }
+}
+
+///|
+/// The separator the paths of this system are written with.
+///
+fn path_sep(env : Map[String, String]) -> String {
+  if is_windows(env) {
+    "\\"
+  } else {
+    "/"
+  }
+}
+
+///|
+/// The paths the mermaid runtime may be at, in the order they are tried.
+///
+/// The npm roots come first - that is where a global install puts it -
+/// and the two names the package can have are tried under each of them.
+///
+/// Pure: the environment decides, and nothing else does.
+///
+fn mermaid_js_candidates(env : Map[String, String]) -> Array[String] {
+  let sep = path_sep(env)
+  let roots : Array[String] = []
+  match env_of(env, "NPM_CONFIG_PREFIX") {
+    Some(p) => roots.push(p + sep + "lib" + sep + "node_modules")
+    None => ()
+  }
+  if is_windows(env) {
+    match env_of(env, "APPDATA") {
+      Some(p) => roots.push(p + sep + "npm" + sep + "node_modules")
+      None => ()
+    }
+    match env_of(env, "ProgramData") {
+      Some(p) => roots.push(p + sep + "npm" + sep + "node_modules")
+      None => ()
+    }
+  } else {
+    roots.push("/usr/local/lib/node_modules")
+    roots.push("/usr/lib/node_modules")
+    match env_of(env, "HOME") {
+      Some(h) => {
+        roots.push(h + sep + ".npm-global" + sep + "lib" + sep + "node_modules")
+        roots.push(h + sep + ".local" + sep + "lib" + sep + "node_modules")
+      }
+      None => ()
+    }
+  }
+  let cli = "@mermaid-js" +
+    sep +
+    "mermaid-cli" +
+    sep +
+    "node_modules" +
+    sep +
+    "mermaid" +
+    sep +
+    "dist" +
+    sep +
+    "mermaid.min.js"
+  let plain = "mermaid" + sep + "dist" + sep + "mermaid.min.js"
+  let out : Array[String] = []
+  for r in roots {
+    out.push(r + sep + cli)
+    out.push(r + sep + plain)
+  }
+  out
+}
+
+///|
+/// The mermaid runtime to inline: the path to it, or None when there is
+/// none.
+///
+/// The order is the one above: the MERMAID_JS variable first, then the
+/// npm roots.
+///
+/// Pure: the environment and the test for whether a path is there are the
+/// only inputs, so the order can be checked without a filesystem.
+///
+fn find_mermaid_js(
+  env : Map[String, String],
+  exists : (String) -> Bool,
+) -> String? {
+  match env_of(env, "MERMAID_JS") {
+    Some(p) => if exists(p) { Some(p) } else { None }
+    None => {
+      for c in mermaid_js_candidates(env) {
+        if exists(c) {
+          return Some(c)
+        }
+      }
+      None
+    }
+  }
+}
+
+///|
+/// The mermaid runtime to inline: the path to read.
+///
+/// The lookup finds it, and the author's own copy is the last fallback:
+/// the machine the tool was written on keeps working when the lookup
+/// finds nothing. A variable that names a file that is not there is
+/// reported as itself, because that is the file the caller has to fix.
+///
+fn mermaid_js_path() -> String {
+  let env = @env.get_env_vars()
+  let named = env_of(env, "MERMAID_JS")
+  // the paths that are there, so that the lookup itself stays pure. The
+  // file system is asked once: the candidates are looked for as a list,
+  // because asking the file system about each of them in turn is asking it
+  // about the same place several times over.
+  let there : Array[String] = []
+  match io_first_existing(mermaid_js_candidates(env)) {
+    Some(p) => there.push(p)
+    None => ()
+  }
+  match named {
+    Some(p) => if io_exists(p) { there.push(p) }
+    None => ()
+  }
+  let exists = fn(p : String) -> Bool { there.contains(p) }
+  match find_mermaid_js(env, exists) {
+    Some(p) => p
+    None =>
+      match named {
+        Some(p) => p
+        None => DEFAULT_MERMAID_JS
+      }
+  }
+}
+
+///|
 /// The argument index of the first user argument.
 ///
-/// `@env.args()` starts with the program itself. Under the js backend it
-/// starts with the node binary AND the script path, so two entries have to
-/// be skipped there; under native only one.
+/// The offset is not the same on every target: the js backend runs under
+/// node, and node's own arguments come first. The offset each target has is
+/// in the file that belongs to it - argv_native.mbt and argv_js.mbt.
+///
 
 ///|
-fn user_arg_start(args : Array[String]) -> Int32 {
-  if args.length() > 0 {
-    let a = args[0]
-    if a.has_suffix(".js") || a.has_suffix(".mjs") {
-      return 2
+fn read_text(path : String) -> String? {
+  match io_read_text(path) {
+    Some(t) => Some(t)
+    None => {
+      // the file system is asked whether the file is there only now: on the
+      // happy path the read has already answered the question
+      if io_exists(path) {
+        println("ERROR\tcannot read \{path}")
+      } else {
+        println("ERROR\tno such file: \{path}")
+      }
+      None
     }
   }
-  1
 }
 
 ///|
-async fn read_text(path : String) -> String? {
-  if !@fs.exists(path) {
-    println("ERROR\tno such file: \{path}")
-    return None
+/// Write a file, and say that it was written.
+///
+/// The write is checked: a path that cannot be written to is a failure,
+/// and a failure has to show in the exit code as well - a page that was
+/// never written must not be reported as one that was.
+///
+fn write_text(path : String, content : String) -> Bool {
+  if !io_write_text(path, content) {
+    println("ERROR\tcannot write \{path}")
+    return false
   }
-  let data = @fs.read_file(path)
-  let t = data.text() catch {
-    e => {
-      println("ERROR\tcannot read \{path}: \{e}")
-      return None
-    }
-  }
-  Some(t)
-}
-
-///|
-async fn write_text(path : String, content : String) -> Unit {
-  @fs.write_file(path, content)
   println("wrote \{path} (\{(content.length() / 1024)} KB)")
+  true
+}
+
+///|
+/// The mermaid runtime to inline, read from where it is.
+///
+/// The path is resolved only when the runtime is needed: a document
+/// without a diagram never needs it, so a missing runtime must not stop
+/// such a document from being written.
+///
+fn read_mermaid_js(named : String?) -> String? {
+  match named {
+    Some(p) => read_text(p)
+    None => read_text(mermaid_js_path())
+  }
 }
 
 ///|
@@ -165,18 +363,18 @@ fn file_title(path : String) -> String {
 ///|
 /// Build the HTML5 page for a Mermaid scan.
 ///
-async fn mmd_to_html(
+fn mmd_to_html(
   in_path : String,
   out_path : String,
-  mermaid_js_path : String,
-) -> Unit {
+  mermaid_js : String?,
+) -> Bool {
   match read_text(in_path) {
     Some(src) => {
       let d = @mermaid.parse_diagram(src)
       println(
         "parsed \{d.files.length()} files, \{@mermaid.drawn_notices(d)} notice states, \{@mermaid.drawn_findings(d)} findings",
       )
-      let mermaid_js = match read_text(mermaid_js_path) {
+      let runtime = match read_mermaid_js(mermaid_js) {
         Some(js) => js
         None => {
           // the scan page IS a Mermaid application: the client script draws
@@ -186,15 +384,15 @@ async fn mmd_to_html(
           println(
             "ERROR\tcannot inline the mermaid runtime; the page cannot draw the diagram, so no page was written",
           )
-          return
+          return false
         }
       }
       let title = @mermaid.meta_of(d, "target") +
         " — Mermaid state diagram (HTML5 render)"
-      let page = @mermaid.render_page(d, mermaid_js, title, src)
+      let page = @mermaid.render_page(d, runtime, title, src)
       write_text(out_path, page)
     }
-    None => ()
+    None => false
   }
 }
 
@@ -204,6 +402,7 @@ async fn mmd_to_html(
 /// The mermaid runtime is 2.6 MB, so it is only inlined when the document
 /// actually holds a diagram: a page without one stays a page without it.
 ///
+
 ///|
 /// A document, ready to be written as a page: its blocks (which the figure
 /// measurement walks), its rendered body, and the runtime that draws it.
@@ -219,13 +418,13 @@ priv struct RenderedDoc {
 /// `md2html` and `md2pdf` both need exactly this, and a document whose diagram
 /// cannot be drawn has to fail the same way through either, so the first half
 /// of both lives here.
-async fn render_document(in_path : String, mermaid_js_path : String) -> RenderedDoc? {
+fn render_document(in_path : String, mermaid_js : String?) -> RenderedDoc? {
   match read_text(in_path) {
     Some(src) => {
       let blocks = @md.parse_document(src)
       let body = @md.render_blocks(blocks)
-      let mermaid_js = if @md.needs_runtime(blocks) {
-        match read_text(mermaid_js_path) {
+      let runtime = if @md.needs_runtime(blocks) {
+        match read_mermaid_js(mermaid_js) {
           Some(js) => js
           None => {
             // the document holds a diagram, so it needs the runtime; a page
@@ -239,20 +438,20 @@ async fn render_document(in_path : String, mermaid_js_path : String) -> Rendered
       } else {
         ""
       }
-      Some({ blocks, body, mermaid_js })
+      Some({ blocks, body, mermaid_js: runtime, })
     }
     None => None
   }
 }
 
 ///|
-async fn md_to_html(
+fn md_to_html(
   in_path : String,
   out_path : String,
-  mermaid_js_path : String,
+  mermaid_js : String?,
   figures_one_page : Bool,
-) -> Unit {
-  match render_document(in_path, mermaid_js_path) {
+) -> Bool {
+  match render_document(in_path, mermaid_js) {
     Some(doc) => {
       let page = @md.render_page(
         file_title(in_path),
@@ -262,7 +461,7 @@ async fn md_to_html(
       )
       write_text(out_path, page)
     }
-    None => ()
+    None => false
   }
 }
 
@@ -275,7 +474,7 @@ async fn md_to_html(
 /// sizes into sheets is `@md.figure_pages`. The result is reported per figure
 /// on purpose: when `--figure-page-max` bites, the labels land below the
 /// target, and a silent degradation is the one thing this mode must not do.
-async fn figure_page_sheets(
+fn figure_page_sheets(
   doc : RenderedDoc,
   chrome : String,
   target_pt : Double,
@@ -283,7 +482,9 @@ async fn figure_page_sheets(
 ) -> String? {
   let sources = @md.mermaid_sources(doc.blocks)
   if sources.is_empty() {
-    println("NOTE\tthis document holds no diagram, so the page size is unchanged")
+    println(
+      "NOTE\tthis document holds no diagram, so the page size is unchanged",
+    )
     return Some("")
   }
   let max_mm = match @md.paper_of(max_spec) {
@@ -298,16 +499,22 @@ async fn figure_page_sheets(
     None => (148.0, 210.0)
   }
   let measure_path = "measure.html"
-  @fs.write_file(measure_path, @printpdf.measure_page(sources, doc.mermaid_js))
+  if !io_write_text(
+      measure_path,
+      @printpdf.measure_page(sources, doc.mermaid_js),
+    ) {
+    println("ERROR\tcannot write \{measure_path}")
+    return None
+  }
   let dom = match dump_dom(chrome, measure_path) {
     Some(x) => x
     None => {
       println("ERROR\tthe browser did not return the measurement")
-      @fs.remove(measure_path)
+      ignore(io_remove(measure_path))
       return None
     }
   }
-  @fs.remove(measure_path)
+  ignore(io_remove(measure_path))
   let m = @printpdf.parse_measurement(dom)
   for e in m.errors {
     println("ERROR\ta diagram did not render: " + e)
@@ -321,7 +528,9 @@ async fn figure_page_sheets(
     @md.FIGURE_MARGIN_MM,
   )
   for p in pages {
-    let mut line = "figure " + p.index.to_string() + "\t" +
+    let mut line = "figure " +
+      p.index.to_string() +
+      "\t" +
       @printpdf.fmt1(p.width_mm) +
       " x " +
       @printpdf.fmt1(p.height_mm) +
@@ -343,17 +552,17 @@ async fn figure_page_sheets(
 /// can measure the drawings, once with the sheets those measurements imply.
 /// Nothing in the second pass is guessed - the first pass is what makes the
 /// second possible.
-async fn md_to_pdf(
+fn md_to_pdf(
   in_path : String,
   out_path : String,
-  mermaid_js_path : String,
+  mermaid_js : String?,
   chrome : String,
   header_footer : Bool,
   figures_one_page : Bool,
   figure_fit_pt : Double?,
   figure_max : String,
-) -> Unit {
-  match render_document(in_path, mermaid_js_path) {
+) -> Bool {
+  match render_document(in_path, mermaid_js) {
     Some(doc) => {
       let mut extra_css = ""
       let mut one_page = figures_one_page
@@ -367,7 +576,7 @@ async fn md_to_pdf(
               one_page = true
               extra_css = css
             }
-            None => return
+            None => return false
           }
       }
       let page = @md.render_page(
@@ -378,11 +587,31 @@ async fn md_to_pdf(
         extra_print_css=extra_css,
       )
       let tmp = sidecar_path(out_path, ".html")
-      write_text(tmp, page)
-      print_to_pdf(tmp, out_path, chrome, header_footer)
+      if !write_text(tmp, page) {
+        return false
+      }
+      print_pdf(tmp, out_path, chrome, header_footer)
     }
-    None => ()
+    None => false
   }
+}
+
+///|
+/// Print a laid-out page to a PDF, and say whether the PDF was written.
+///
+/// The browser reports its own failures, but a file that is not there is
+/// a run that produced nothing - and a run that produced nothing must
+/// not look like a run that did.
+///
+fn print_pdf(
+  in_path : String,
+  out_path : String,
+  chrome : String,
+  header_footer : Bool,
+) -> Bool {
+  let browser = io_exists(chrome)
+  print_to_pdf(in_path, out_path, chrome, header_footer)
+  browser && io_exists(out_path)
 }
 
 ///|
@@ -393,32 +622,39 @@ async fn md_to_pdf(
 /// node back, and prints it. It is how the print layout gets the numbers it
 /// needs - and how those numbers can be checked against the drawing.
 ///
-async fn mmd_to_measure(
+fn mmd_to_measure(
   in_path : String,
-  mermaid_js_path : String,
+  mermaid_js : String?,
   chrome : String,
-) -> Unit {
+) -> Bool {
   match read_text(in_path) {
     Some(src) => {
       let d = @mermaid.parse_diagram(src)
       let p = @printpdf.plan(d)
-      let mermaid_js = match read_text(mermaid_js_path) {
+      let runtime = match read_mermaid_js(mermaid_js) {
         Some(js) => js
         None => {
           println("ERROR\tcannot inline the mermaid runtime")
-          return
+          return false
         }
       }
       let measure_path = "measure.html"
-      @fs.write_file(
-        measure_path,
-        @printpdf.measure_page([p.detail_full, p.detail_focus], mermaid_js),
-      )
+      if !io_write_text(
+          measure_path,
+          @printpdf.measure_page([p.detail_full, p.detail_focus], runtime),
+        ) {
+        println("ERROR\tcannot write \{measure_path}")
+        return false
+      }
       let dom = match dump_dom(chrome, measure_path) {
         Some(x) => x
         None => {
           println("ERROR\tthe browser did not return the measurement")
-          return
+          // the measurement page is a temporary file: it is removed when the
+          // command is done with it, and a run that failed is done with it
+          // too
+          ignore(io_remove(measure_path))
+          return false
         }
       }
       let m = @printpdf.parse_measurement(dom)
@@ -452,9 +688,10 @@ async fn mmd_to_measure(
       println(
         "why    \{@printpdf.fmt0(cls.why.from)}-\{@printpdf.fmt0(cls.why.to)}",
       )
-      @fs.remove(measure_path)
+      ignore(io_remove(measure_path))
+      true
     }
-    None => ()
+    None => false
   }
 }
 
@@ -498,25 +735,25 @@ fn sidecar_path(out_path : String, suffix : String) -> String {
 /// Nothing in the layout is left to the browser, and nothing is left to the
 /// PDF: the notice count in the appendix is the notice count of the source.
 ///
-async fn mmd_to_pdf(
+fn mmd_to_pdf(
   in_path : String,
   out_path : String,
-  mermaid_js_path : String,
+  mermaid_js : String?,
   chrome : String,
   header_footer : Bool,
   figures_one_page : Bool,
-) -> Unit {
+) -> Bool {
   match read_text(in_path) {
     Some(src) => {
       let d = @mermaid.parse_diagram(src)
       println(
         "parsed \{d.files.length()} files, \{@mermaid.drawn_notices(d)} notice states, \{@mermaid.drawn_findings(d)} findings",
       )
-      let mermaid_js = match read_text(mermaid_js_path) {
+      let runtime = match read_mermaid_js(mermaid_js) {
         Some(js) => js
         None => {
           println("ERROR\tcannot inline the mermaid runtime")
-          return
+          return false
         }
       }
       let p = @printpdf.plan(d)
@@ -524,10 +761,12 @@ async fn mmd_to_pdf(
         // the whole drawing on one sheet: there is nothing to measure and
         // nothing to slice, so the report geometry has no say here
         let print_path = sidecar_path(out_path, ".print.html")
-        @fs.write_file(print_path, @printpdf.print_one_page(d, mermaid_js))
-        println("wrote \{print_path} (\{@fs.file_size(print_path) / 1024} KB)")
-        print_to_pdf(print_path, out_path, chrome, header_footer)
-        return
+        if !io_write_text(print_path, @printpdf.print_one_page(d, runtime)) {
+          println("ERROR\tcannot write \{print_path}")
+          return false
+        }
+        println("wrote \{print_path} (\{io_file_size(print_path) / 1024} KB)")
+        return print_pdf(print_path, out_path, chrome, header_footer)
       }
       if p.detail_index < 0 {
         println(
@@ -537,13 +776,16 @@ async fn mmd_to_pdf(
       // ---- step 1: measure the detail drawing
       let measure_path = sidecar_path(out_path, ".measure.html")
       let sources = [p.detail_full, p.detail_focus]
-      @fs.write_file(measure_path, @printpdf.measure_page(sources, mermaid_js))
+      if !io_write_text(measure_path, @printpdf.measure_page(sources, runtime)) {
+        println("ERROR\tcannot write \{measure_path}")
+        return false
+      }
       let dom = match dump_dom(chrome, measure_path) {
         Some(x) => x
         None => {
           println("ERROR\tthe browser did not return the measurement")
-          @fs.remove(measure_path)
-          return
+          ignore(io_remove(measure_path))
+          return false
         }
       }
       let m = @printpdf.parse_measurement(dom)
@@ -554,14 +796,14 @@ async fn mmd_to_pdf(
         println(
           "the measurement page is left at \{measure_path} for inspection",
         )
-        return
+        return false
       }
       if !m.errors.is_empty() {
         for e in m.errors {
           println("ERROR\tmeasure: \{e}")
         }
-        @fs.remove(measure_path)
-        return
+        ignore(io_remove(measure_path))
+        return false
       }
       let (w, h) = @printpdf.full_size(m)
       let (fw, fh) = @printpdf.focus_size(m)
@@ -570,13 +812,17 @@ async fn mmd_to_pdf(
       )
       // ---- step 2: lay the document out
       let print_path = sidecar_path(out_path, ".print.html")
-      @fs.write_file(print_path, @printpdf.print_document(d, p, m, mermaid_js))
-      println("wrote \{print_path} (\{@fs.file_size(print_path) / 1024} KB)")
+      if !io_write_text(print_path, @printpdf.print_document(d, p, m, runtime)) {
+        println("ERROR\tcannot write \{print_path}")
+        return false
+      }
+      println("wrote \{print_path} (\{io_file_size(print_path) / 1024} KB)")
       // ---- step 3: print it
-      print_to_pdf(print_path, out_path, chrome, header_footer)
-      @fs.remove(measure_path)
+      let printed = print_pdf(print_path, out_path, chrome, header_footer)
+      ignore(io_remove(measure_path))
+      printed
     }
-    None => ()
+    None => false
   }
 }
 
@@ -586,7 +832,7 @@ async fn mmd_to_pdf(
 /// Run the command line tool with the given arguments (argv, argv[0] is the
 /// program itself).
 ///
-pub async fn run(args : Array[String]) -> Unit {
+pub fn run(args : Array[String]) -> Unit {
   let mut i = user_arg_start(args)
   if i >= args.length() {
     usage()
@@ -595,7 +841,8 @@ pub async fn run(args : Array[String]) -> Unit {
   let cmd = args[i]
   i += 1
   let positional : Array[String] = []
-  let mut mermaid_js_path = DEFAULT_MERMAID_JS
+  // None means the runtime is looked for; Some is a path the caller named
+  let mut mermaid_js : String? = None
   let mut chrome = DEFAULT_CHROME
   let mut header_footer = false
   let mut figures_one_page = false
@@ -605,7 +852,7 @@ pub async fn run(args : Array[String]) -> Unit {
     let a = args[i]
     if a == "--mermaid-js" && i + 1 < args.length() {
       i += 1
-      mermaid_js_path = args[i]
+      mermaid_js = Some(args[i])
     } else if a == "--chrome" && i + 1 < args.length() {
       i += 1
       chrome = args[i]
@@ -638,65 +885,76 @@ pub async fn run(args : Array[String]) -> Unit {
     }
     i += 1
   }
+  // whether the command produced what it was asked for
+  let mut ok = true
   match cmd {
-    "md2html" => {
+    "md2html" =>
       if positional.length() < 2 {
         usage()
-        return
+      } else {
+        ok = md_to_html(
+          positional[0],
+          positional[1],
+          mermaid_js,
+          figures_one_page,
+        )
       }
-      md_to_html(positional[0], positional[1], mermaid_js_path, figures_one_page)
-    }
-    "mmd2html" => {
+    "mmd2html" =>
       if positional.length() < 2 {
         usage()
-        return
+      } else {
+        ok = mmd_to_html(positional[0], positional[1], mermaid_js)
       }
-      mmd_to_html(positional[0], positional[1], mermaid_js_path)
-    }
-    "print2pdf" => {
+    "print2pdf" =>
       if positional.length() < 2 {
         usage()
-        return
+      } else {
+        ok = print_pdf(positional[0], positional[1], chrome, header_footer)
       }
-      print_to_pdf(positional[0], positional[1], chrome, header_footer)
-    }
-    "md2pdf" => {
+    "md2pdf" =>
       if positional.length() < 2 {
         usage()
-        return
+      } else {
+        ok = md_to_pdf(
+          positional[0],
+          positional[1],
+          mermaid_js,
+          chrome,
+          header_footer,
+          figures_one_page,
+          figure_fit_pt,
+          figure_max,
+        )
       }
-      md_to_pdf(
-        positional[0],
-        positional[1],
-        mermaid_js_path,
-        chrome,
-        header_footer,
-        figures_one_page,
-        figure_fit_pt,
-        figure_max,
-      )
-    }
-    "mmd2measure" => {
+    "mmd2measure" =>
       if positional.length() < 1 {
         usage()
-        return
+      } else {
+        ok = mmd_to_measure(positional[0], mermaid_js, chrome)
       }
-      mmd_to_measure(positional[0], mermaid_js_path, chrome)
-    }
-    "mmd2pdf" => {
+    "mmd2pdf" =>
       if positional.length() < 2 {
         usage()
-        return
+      } else {
+        ok = mmd_to_pdf(
+          positional[0],
+          positional[1],
+          mermaid_js,
+          chrome,
+          header_footer,
+          figures_one_page,
+        )
       }
-      mmd_to_pdf(
-        positional[0],
-        positional[1],
-        mermaid_js_path,
-        chrome,
-        header_footer,
-        figures_one_page,
-      )
-    }
     _ => usage()
   }
+  if !ok {
+    // the command could not do what it was asked for: the messages above
+    // say why, and the exit code says that it did not happen
+    @env.exit(EXIT_FAILURE)
+  }
 }
+
+///|
+/// The exit code of a command that could not do what it was asked for.
+///
+const EXIT_FAILURE : Int32 = 1

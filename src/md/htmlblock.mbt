@@ -5,6 +5,7 @@
 /// instruction, a declaration, a CDATA section and the tags that hold
 /// literal content end at their own closing marker; a block level tag and a
 /// tag that stands alone on the line end at the next blank line.
+
 ///|
 priv enum HtmlKind {
   /// <pre>, <script>, <style>, <textarea>
@@ -30,6 +31,7 @@ priv enum HtmlKind {
 /// A line may be indented by up to three spaces. All the kinds but the last
 /// one may interrupt a paragraph; the last one may not, so that a tag
 /// inside a wrapped paragraph stays part of the text.
+
 ///|
 fn html_block_kind(s : String) -> HtmlKind? {
   let cs = chars(s)
@@ -155,10 +157,11 @@ fn html_block_ends_at_marker(kind : HtmlKind) -> Bool {
 ///
 fn html_block_ends(kind : HtmlKind, line : String) -> Bool {
   match kind {
-    Pre => contains_text(line, "</pre>") ||
-    contains_text(line, "</script>") ||
-    contains_text(line, "</style>") ||
-    contains_text(line, "</textarea>")
+    Pre =>
+      contains_text(line, "</pre>") ||
+      contains_text(line, "</script>") ||
+      contains_text(line, "</style>") ||
+      contains_text(line, "</textarea>")
     Comment => contains_text(line, "-->")
     Instruction => contains_text(line, "?>")
     Declaration => contains_text(line, ">")
