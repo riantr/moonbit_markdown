@@ -27,7 +27,7 @@
 
 name = "riantr/moonbit_markdown"
 
-version = "0.1.0"
+version = "0.1.3"
 
 readme = "README.md"
 

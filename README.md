@@ -17,6 +17,25 @@ the repository root, so the two can be compared directly:
 | `build_final.py` | `src/mermaid` + `src/md` |
 | `build_pdf.js` | `src/printpdf` (the pagination maths) |
 
+## Using it
+
+The module is published on the registry — [`riantr/moonbit_markdown`](https://mooncakes.io/docs/riantr/moonbit_markdown)
+— and the version the tag names is the version that is there:
+
+```
+moon add riantr/moonbit_markdown            # the latest release
+moon add riantr/moonbit_markdown@0.1.3      # that release exactly
+```
+
+The pure packages carry the algorithm and depend on nothing outside this
+module, so a project that only renders Markdown to HTML5 needs no other
+package. The command line tool is the executable in the root of the module,
+and it is run from a checkout of it:
+
+```
+moon run . mmd2html <in.mmd> out.html
+```
+
 ## Quick check
 
 Six commands, six one-line verdicts. They need `node` with `puppeteer`
@@ -485,7 +504,7 @@ the last thing produced and never an exception. `ci/release.py` holds that
 promise as three rules, and `ci/ci.py` is the only thing that acts on them:
 
 - **No tag while the local CI is red.** Not even on request.
-- **A tag only moves its final component**: `v0.1.0` → `v0.1.1` → `v0.1.2`.
+- **A tag only moves its final component**: `v0.1.0` → `v0.1.1` → `v0.1.2` → `v0.1.3`.
 - **Gitee may be pushed at any time; GitHub only from a green run that has a
   tag**, so what is published there is always a named, tested state.
 
@@ -510,6 +529,33 @@ network — and it is what a tag is normally granted from. The two opt-in tiers
 are slow, and when they are left out the tag gate **names them** rather than
 silently dropping them: a green that quietly ignored the browser checks is not
 green. A full release points at all five.
+
+### The publish
+
+The tag is not the last step: it is what starts the release.
+
+| remote | what it carries |
+| --- | --- |
+| gitee | the working remote: the commits and the tags |
+| GitHub | the release remote: the tag push starts the publish |
+
+`.github/workflows/publish.yml` runs on a `v*` tag pushed to GitHub. It checks
+the tag out, refuses it unless the tag's version and `moon.mod`'s version are
+the same number, runs the same `ci/ci.py` engine the local run uses, publishes
+to the registry, and creates the GitHub Release. Its gate is `env,build`: the
+other tiers need the generated documents, a browser, or a spec download that
+only works on Windows, so they are verified locally instead.
+
+The publish needs the registry token. The workflow reads it from the
+repository secret `MOONCAKES_RIANTR_TOKEN`, and that secret holds the JSON
+body of `~/.moon/credentials.json` — an object with a `token` and a
+`username` — not a bare token. The workflow checks the shape and says so,
+because the alternative is an authentication error that says nothing.
+
+The publish is never done by hand. `moon publish` on a version that already
+exists fails, and the registry's `latest` means "whatever was published
+last", so a manual publish would leave the registry pointing somewhere the
+tag order does not suggest.
 
 The engine exists as a script rather than only as a workflow because a local
 loop and a workflow file drift apart, and this repository's promise is about

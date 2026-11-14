@@ -31,3 +31,12 @@
 # A failing step's transcript is evidence for one run, not a file to keep.
 /ci/artifacts/
 __pycache__/
+
+# The reports an analysis tool writes when it is pointed at this module: a
+# Markdown report, a summary and a trace of every step it took. The trace is
+# tens of megabytes, and none of it belongs to the module.
+#
+# Ignoring them is also what keeps them out of the published package:
+# `moon publish` packs the module and leaves out what is ignored here, so a
+# directory that is not ignored is a directory that ships to the registry.
+/reports/

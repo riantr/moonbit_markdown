@@ -1,0 +1,168 @@
+# The release path: a tag pushed to GitHub publishes this module to
+# mooncakes.io.
+#
+# The tag is the trigger, and it is the only trigger. A tag names a state the
+# local CI has already verified -- `ci/ci.py --tag` refuses to create one
+# unless every step that ran passed -- so the run that publishes is a run of
+# the same engine over the same tree.
+#
+# The publish is never done by hand. `moon publish` on a version that exists
+# fails, and the registry's `latest` means "whatever was published last", so a
+# manual publish would leave the registry pointing somewhere the tag order
+# does not suggest.
+#
+# The gate below is `env,build`: the same tier list `.github/workflows/ci.yml`
+# runs, and for the same reason -- it is the part of the suite that works on a
+# fresh checkout. The other three tiers cannot, and each fails for its own
+# reason rather than because nobody tried:
+#
+#   gates    needs the generated documents, which are build products and are
+#            gitignored, so a fresh checkout has nothing to check.
+#   browser  needs Chrome and the same documents.
+#   spec     needs the CommonMark spec, which `tools/commonmark_spec.js`
+#            downloads with `curl.exe` -- a name that exists on Windows and
+#            on no Linux runner. It is verified locally, where it runs.
+#
+# The version check is a guard rather than a gate: the tag and `moon.mod`
+# must name the same version. Without it the registry and the tag order could
+# disagree about what was released, and nothing would notice.
+
+name: publish-package
+run-name: publish moonbit_markdown ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag, for example v0.1.3"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-moonbit_markdown-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+      - name: Resolve the release version
+        id: release
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="$GITHUB_REF_NAME"
+          fi
+          case "$tag" in
+            v*) version="${tag#v}" ;;
+            *)
+              echo "Release tag must use the v* format, got: $tag" >&2
+              exit 1
+              ;;
+          esac
+          manifest_version="$(awk -F'"' '/^[[:space:]]*version[[:space:]]*=/ { print $2; exit }' moon.mod)"
+          if [ -z "$manifest_version" ]; then
+            echo "moon.mod does not declare a version" >&2
+            exit 1
+          fi
+          if [ "$version" != "$manifest_version" ]; then
+            echo "Tag version $version does not match moon.mod version $manifest_version" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Toolchain versions
+        run: |
+          moon version --all
+          moonrun --version
+
+      - name: Gate
+        run: python3 ci/ci.py --tiers env,build
+
+      # WHAT THE SECRET MUST CONTAIN: the JSON body of
+      # ~/.moon/credentials.json -- an object with a non-empty "token" and a
+      # non-empty "username" -- NOT a bare token string. The step below
+      # writes the secret straight to that path, so a bare token produces a
+      # file that does not parse and `moon publish` fails with an opaque
+      # authentication error.
+      #
+      # The shape is checked here rather than left to that error, and the
+      # check is written in Python because the repository has a Python that
+      # runs on every platform it supports, while a shell snippet would be
+      # verified on one platform only.
+      - name: Check the credential shape
+        run: |
+          set -euo pipefail
+          if [ -z "$SECRET" ]; then
+            echo "::error::MOONCAKES_RIANTR_TOKEN is not set on this repository, so the publish cannot authenticate. If it IS set, check its SHAPE: it must be the JSON body of ~/.moon/credentials.json, not a bare token."
+            exit 1
+          fi
+          mkdir -p "$HOME/.moon"
+          printf '%s' "$SECRET" > "$HOME/.moon/credentials.json"
+          trap 'rm -f "$HOME/.moon/credentials.json"' EXIT
+          python3 - <<'PY'
+          import json, os, sys
+
+          path = os.path.expanduser("~/.moon/credentials.json")
+          try:
+              with open(path, encoding="utf-8") as fh:
+                  data = json.load(fh)
+          except Exception as exc:
+              print("::error::the credential file is not JSON (%s). It must be the "
+                    "JSON body of ~/.moon/credentials.json, not a bare token." % exc)
+              sys.exit(1)
+          missing = [k for k in ("token", "username") if not data.get(k)]
+          if missing:
+              print("::error::the credential file has no %s. It must be the JSON "
+                    "body of ~/.moon/credentials.json, not a bare token."
+                    % ", ".join(missing))
+              sys.exit(1)
+          print("credential shape: ok")
+          PY
+        env:
+          SECRET: ${{ secrets.MOONCAKES_RIANTR_TOKEN }}
+
+      - name: Publish to Mooncakes
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.moon"
+          printf '%s' "$SECRET" > "$HOME/.moon/credentials.json"
+          trap 'rm -f "$HOME/.moon/credentials.json"' EXIT
+          moon publish
+        env:
+          SECRET: ${{ secrets.MOONCAKES_RIANTR_TOKEN }}
+
+      # The release notes are generated from the commits, so they cannot drift
+      # from what was shipped. An existing release is edited rather than
+      # recreated, so that a re-run of this workflow -- which is what a manual
+      # dispatch is -- does not fail on a release that is already there.
+      - name: Create GitHub Release
+        run: |
+          set -euo pipefail
+          tag="${{ steps.release.outputs.tag }}"
+          title="moonbit_markdown ${{ steps.release.outputs.version }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "$title"
+          else
+            gh release create "$tag" --title "$title" --generate-notes
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
