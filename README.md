@@ -29,8 +29,20 @@ moon add riantr/moonbit_markdown@0.1.3      # that release exactly
 
 The pure packages carry the algorithm and depend on nothing outside this
 module, so a project that only renders Markdown to HTML5 needs no other
-package. The command line tool is the executable in the root of the module,
-and it is run from a checkout of it:
+package. A package whose name begins with a lower case letter is written
+with an `@` in front of it, so the renderer reads:
+
+```
+import { "riantr/moonbit_markdown/src/md" }
+
+fn main {
+  let html = @md.render("# hi")
+  println(html)
+}
+```
+
+The command line tool is the executable in the root of the module, and it is
+run from a checkout of it:
 
 ```
 moon run . mmd2html <in.mmd> out.html
@@ -550,7 +562,10 @@ The publish needs the registry token. The workflow reads it from the
 repository secret `MOONCAKES_RIANTR_TOKEN`, and that secret holds the JSON
 body of `~/.moon/credentials.json` — an object with a `token` and a
 `username` — not a bare token. The workflow checks the shape and says so,
-because the alternative is an authentication error that says nothing.
+because the alternative is an authentication error that says nothing. A file
+written by Windows PowerShell carries a byte-order mark, and a secret copied
+out of such a file carries it too; the workflow removes one and says that it
+did, because a file with a mark on the front is not JSON.
 
 The publish is never done by hand. `moon publish` on a version that already
 exists fails, and the registry's `latest` means "whatever was published

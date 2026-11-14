@@ -117,14 +117,26 @@ jobs:
           fi
           mkdir -p "$HOME/.moon"
           printf '%s' "$SECRET" > "$HOME/.moon/credentials.json"
-          trap 'rm -f "$HOME/.moon/credentials.json"' EXIT
           python3 - <<'PY'
           import json, os, sys
 
           path = os.path.expanduser("~/.moon/credentials.json")
+          with open(path, "rb") as fh:
+              raw = fh.read()
+
+          # A byte-order mark is a real failure mode, not a theoretical one.
+          # A file written by Windows PowerShell carries one, and a secret
+          # copied out of such a file carries it too: the first release of
+          # this module was refused for exactly that reason, with "the
+          # credential file is not JSON (Unexpected UTF-8 BOM)". The mark is
+          # removed here, and the file is rewritten without it, so what
+          # `moon publish` reads is plain JSON.
+          if raw.startswith(b"\xef\xbb\xbf"):
+              raw = raw[3:]
+              print("the credential carried a byte-order mark; it has been removed")
+
           try:
-              with open(path, encoding="utf-8") as fh:
-                  data = json.load(fh)
+              data = json.loads(raw.decode("utf-8"))
           except Exception as exc:
               print("::error::the credential file is not JSON (%s). It must be the "
                     "JSON body of ~/.moon/credentials.json, not a bare token." % exc)
@@ -135,16 +147,21 @@ jobs:
                     "body of ~/.moon/credentials.json, not a bare token."
                     % ", ".join(missing))
               sys.exit(1)
+
+          with open(path, "wb") as fh:
+              fh.write(json.dumps(data).encode("utf-8"))
           print("credential shape: ok")
           PY
         env:
           SECRET: ${{ secrets.MOONCAKES_RIANTR_TOKEN }}
 
+      # The credential file the step above wrote is the one this step reads,
+      # so the byte-order mark is stripped once and only once. The file is
+      # removed when the step ends, whatever the outcome.
       - name: Publish to Mooncakes
         run: |
           set -euo pipefail
-          mkdir -p "$HOME/.moon"
-          printf '%s' "$SECRET" > "$HOME/.moon/credentials.json"
+          test -f "$HOME/.moon/credentials.json"
           trap 'rm -f "$HOME/.moon/credentials.json"' EXIT
           moon publish
         env:

@@ -56,8 +56,14 @@ description = "Markdown and Mermaid to HTML5, and HTML5 to a paginated PDF, in M
 // under src/mdcli, which brings one file per target. The wasm-gc host cannot
 // start another program, so the commands that drive a browser report that
 // there. `ci/check_targets.py` verifies all four targets.
+//
+// The set is declared rather than left to be inferred: the registry shows it
+// on the module's page, and a reader there is looking for the answer to
+// "can this run in a browser?".
 
 preferred_target = "native"
+
+supported_targets = "native+wasm+wasm-gc+js"
 
 // No dependency is declared here: the async runtime this module needs comes
 // with the toolchain, as `moonbitlang/core/async`. It is not a package that
