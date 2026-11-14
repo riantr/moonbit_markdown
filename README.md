@@ -24,7 +24,7 @@ The module is published on the registry — [`riantr/moonbit_markdown`](https://
 
 ```
 moon add riantr/moonbit_markdown            # the latest release
-moon add riantr/moonbit_markdown@0.1.3      # that release exactly
+moon add riantr/moonbit_markdown@0.1.4      # that release exactly
 ```
 
 The pure packages carry the algorithm and depend on nothing outside this
@@ -516,7 +516,7 @@ the last thing produced and never an exception. `ci/release.py` holds that
 promise as three rules, and `ci/ci.py` is the only thing that acts on them:
 
 - **No tag while the local CI is red.** Not even on request.
-- **A tag only moves its final component**: `v0.1.0` → `v0.1.1` → `v0.1.2` → `v0.1.3`.
+- **A tag only moves its final component**: `v0.1.0` → `v0.1.1` → `v0.1.2` → `v0.1.3` → `v0.1.4`.
 - **Gitee may be pushed at any time; GitHub only from a green run that has a
   tag**, so what is published there is always a named, tested state.
 
